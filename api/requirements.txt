@@ -1,0 +1,8 @@
+debugpy
+Flask
+flask-cors
+flask-jwt-extended
+gunicorn
+requests
+runknight-py-utils
+marshmallow
