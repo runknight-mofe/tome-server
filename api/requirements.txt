@@ -3,6 +3,8 @@ Flask
 flask-cors
 flask-jwt-extended
 gunicorn
+packaging
 requests
 runknight-py-utils
 marshmallow
+vector3d
