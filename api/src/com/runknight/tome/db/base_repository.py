@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import logging
 from typing import Any, Generic,  TypeVar
 
-from base_model import BaseDataModel
+from ..model.base_model import BaseDataModel
 
 from .connection import DBConnector
 from psycopg2.extras import Json
@@ -32,11 +32,18 @@ class BaseRepository(ABC, Generic[T]):
         self.keys = keys
         """list of indices by which managed objects are mapped"""
 
+        self.all_items: set[T]
+        """Flat set of all managed objects"""
+
         self.indices: dict[str, dict[Any, T]] = { key : {} for key in keys }
         """Mapping of all managed data objects"""
 
         self.initialized = False
         """Initialization flag for data dict; data dict is lazy loaded"""
+
+    @abstractmethod
+    def sql_get_all(self) -> str:
+        raise NotImplementedError(f'type{self}.sql_get_all undefined.')
 
     @abstractmethod
     def sql_add_func(self, placeholder: str) -> str:
@@ -70,7 +77,6 @@ class BaseRepository(ABC, Generic[T]):
 
         return self.initialized
 
-    @abstractmethod
     def reload_from_db(self) -> bool:
         """Re-initialize the repository data
 
@@ -80,9 +86,22 @@ class BaseRepository(ABC, Generic[T]):
             bool: True if data is successfully retrieved and loaded to 
             local repo, false otherwise.
         """
-        raise NotImplementedError(f'{type(self)} is missing required "reload_from_db(self)" function implementation.')
+        try:
+            results = self.connector.execute(
+                sql = self.sql_get_all(),
+                fetchMany=True
+            )
+            if results:
+                for result in results[0]:
+                    item = self.__model__.from_dict(result)
+                    self.all_items.add(item)
+                    for key in self.keys:
+                        self.indices[key][item.get_field_value(key)] = item
+            return True
+        except Exception as e:
+            self.logger.error(f"{type(self)}.reload_from_db failed: {e}")
+            return False
 
-    @abstractmethod
     def delete_all(self) -> bool:
         """Remove all managed data
 
@@ -91,9 +110,14 @@ class BaseRepository(ABC, Generic[T]):
         Returns:
             bool: True if the deletion is successful, False otherwise
         """
-        raise NotImplementedError(f'{type(self)} is missing required "delete_all(self)" function implementation.')
+        try:
+            self.remove_many(self.all_items)
+            return True
+        except Exception as e:
+            self.logger.error(f"{type(self)}.delete_all failed: {e}")
+            return False     
 
-    def get(self, arg: Any, field: str):
+    def get(self, arg: Any, field: str | None = None):
         """Retrieve managed object
         
         Retrieve managed object with matching field key of value arg
@@ -107,6 +131,9 @@ class BaseRepository(ABC, Generic[T]):
         """
         if not (self.initialized or self.initialize()):
             raise RuntimeError(f'Failed {type(self)}.get; repo not initialized; check underlying DB connection')
+
+        if not field:
+            field = self.keys[0]
 
         return self.indices[field][arg]
 

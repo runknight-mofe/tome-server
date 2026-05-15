@@ -1,6 +1,6 @@
-from api.src.com.runknight.tome.db.connection import DBConnector
-from api.src.com.runknight.tome.model.mesh import NodeMesh
-from base_repository import BaseRepository
+from com.runknight.tome.db.connection import DBConnector, cursor
+from com.runknight.tome.model.mesh import NodeMesh
+from .base_repository import BaseRepository
 
 
 class MeshRepo(BaseRepository[NodeMesh]):
@@ -8,40 +8,25 @@ class MeshRepo(BaseRepository[NodeMesh]):
     
     __model__ = NodeMesh
 
-    KEYS = [
-        NodeMesh.ID,
-        NodeMesh.NAME
-    ]
+    SELECT_ALL = "SELECT * FROM node_meshes"
+
+    KEYS = [NodeMesh.ID, NodeMesh.NAME]
     
     def __init__(self, db: DBConnector | None = None, db_params: dict | None = None):
         super().__init__(MeshRepo.KEYS, db, db_params)
 
+    def sql_get_all(self) -> str:
+        """get all mesh intances sql string"""
+        return MeshRepo.SELECT_ALL
+
     def sql_add_func(self, placeholder: str) -> str:
-        return ""
+        """SQL for BaseRepository.add_many()"""
+        return "SELECT add_many_node_meshes(%s::JSONB)"
 
     def sql_update_func(self, placeholder: str) -> str:
-        return ""
+        """SQL for BaseRepository.update_many()"""
+        return "SELECT update_many_node_meshes(%s::JSONB)"
 
     def sql_remove_func(self, placeholder: str) -> str:
-        return ""
-    
-    def reload_from_db(self):
-        """Re-initialize the repository data
-
-        Drops all cached repo data, and repopulates from underlying DB
-
-        Returns:
-            bool: True if data is successfully retrieved and loaded to 
-            local repo, false otherwise.
-        """
-        return True
-
-    def delete_all(self):
-        """Remove all managed data
-
-        Removes all of the managed objects from the local repo and the underlying DB
-
-        Returns:
-            bool: True if the deletion is successful, False otherwise
-        """
-        return True
+        """SQL for BaseRepository.remove_many()"""
+        return "SELECT remove_many_node_meshes(%s::JSONB)"

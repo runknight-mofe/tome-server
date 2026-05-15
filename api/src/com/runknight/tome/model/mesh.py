@@ -1,12 +1,11 @@
 from dataclasses import dataclass
 from datetime import datetime
-from token import NAME
 from packaging.version import Version
 from typing import Type
 from uuid import UUID
 
-from base_model import BaseDataModel
-from com.runknight.tome.server.models import Predicate
+from .base_model import BaseDataModel
+from .predicate.geometric import Predicate
 
 @dataclass(eq = False)
 class NodeMeshStatus(BaseDataModel):

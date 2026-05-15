@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Type
 from uuid import UUID
 
-from base_model import BaseDataModel
+from .base_model import BaseDataModel
 
 
 @dataclass(eq = False)

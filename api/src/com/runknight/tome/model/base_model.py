@@ -6,6 +6,7 @@ from enum import Enum
 import json
 from typing import Any, Type, get_args, get_origin
 from uuid import UUID
+from packaging.version import Version
 
 from msgspec import ValidationError
 
@@ -155,6 +156,9 @@ class BaseDataModel(ABC):
             return self._data == other._data
         return False
 
+    def __hash__(self) -> int:
+        return hash(self._data)
+
 class DataModelServices:
     
     @staticmethod
@@ -201,6 +205,9 @@ class DataModelServices:
             return value.name
 
         elif isinstance(value, UUID):
+            return str(value)
+
+        elif isinstance(value, Version):
             return str(value)
 
         # Handle sets (convert to list)
@@ -359,6 +366,12 @@ class DataModelServices:
                     return UUID(value)
                 else:
                     raise ValidationError(field_name, f"Cannot convert {type(value).__name__} to UUID")
+
+            elif field_type is Version:
+                if isinstance(value, str):
+                    return Version(value)
+                else:
+                    raise ValidationError(field_name, f"Cannot convert {type(value).__name__} to Version")
 
             # Handle primitive types with conversion
             elif field_type in (int, str, bool, float):

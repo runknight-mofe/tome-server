@@ -6,8 +6,11 @@ from .metadata import Metadata
 
 from ..base_model import BaseDataModel
 
+class Predicate(BaseDataModel):
+    """Tagging class defining the base predicate type"""
+
 @dataclass(eq = False)
-class Point(BaseDataModel):
+class Point(Predicate):
     """Object model for a Line geometric predicate."""
 
     LOCATION       = "location"
@@ -68,7 +71,7 @@ class Point(BaseDataModel):
 
 
 @dataclass(eq = False)
-class LineSegment(BaseDataModel):
+class LineSegment(Predicate):
     """Object model for a Line geometric predicate."""
 
     START       = "start"
@@ -142,7 +145,7 @@ class LineSegment(BaseDataModel):
         return  LineSegment.FIELD_TYPES
     
 @dataclass(eq = False)
-class Plane(BaseDataModel):
+class Plane(Predicate):
     """Object model for a Plane geometric predicate."""
 
     POINT       = "point"
