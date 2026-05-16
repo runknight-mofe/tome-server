@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from packaging.version import Version
 from typing import Type
 from uuid import UUID
@@ -7,146 +8,17 @@ from uuid import UUID
 from .base_model import BaseDataModel
 from .predicate.geometric import Predicate
 
-@dataclass(eq = False)
-class NodeMeshStatus(BaseDataModel):
-    """Enumeration for the last known status of a node mesh"""
-
-    NAME            = "name"
-    DESCRIPTION     = "description"
-    ORDINAL         = "ordinal"
-
-    EXPECTED_FIELDS = { NAME : str, DESCRIPTION : str, ORDINAL : int }
-    OPTIONAL_FIELDS = { }
-    FIELD_TYPES = { 
-        NAME : str,
-        DESCRIPTION : str,
-        ORDINAL : int
-    }
-
-    def __init__(self, params):
-        super().__init__(params)
-        self._name : str        = self._data[NodeMeshStatus.NAME]
-        self._description : str = self._data[NodeMeshStatus.DESCRIPTION]
-        self._ordinal : int     = self._data[NodeMeshStatus.ORDINAL]
-
-    @property
-    def name(self):
-        """Status name"""
-        return self._name
-
-    @name.setter
-    def name(self, value : str):
-        self._name = value
-        self.set_field_value(NodeMeshStatus.NAME, value)
-
-    @property
-    def description(self):
-        """Status descriptor"""
-        return self._description
-
-    @description.setter
-    def description(self, value : str):
-        self._description = value
-        self.set_field_value(NodeMeshStatus.DESCRIPTION, value)
-
-    @property
-    def ordinal(self):
-        """Status ordinal"""
-        return self._ordinal
-
-    @ordinal.setter
-    def ordinal(self, value : int):
-        self._ordinal = value
-        self.set_field_value(NodeMeshStatus.ORDINAL, value)
-
-    def __hash__(self):
-        return hash(self.ordinal)
-
-    def __str__(self):
-        return f'{self.name}'
-
-    def __repr__(self) -> str:
-        return f'{self.ordinal},{self.name}'
-
-    @staticmethod
-    def get_required_fields() -> dict[str, Type]:
-        return NodeMeshStatus.EXPECTED_FIELDS
-
-    @staticmethod
-    def get_optional_fields() -> dict[str, Type]:
-        return NodeMeshStatus.OPTIONAL_FIELDS
-
-    @staticmethod
-    def get_field_types():
-        return  NodeMeshStatus.FIELD_TYPES
-
-@dataclass(eq = False)
-class NodeMeshRole(BaseDataModel):
-    """Construct for a mesh node role"""
-
-    NAME = "name"
-    ORDINAL = "ordinal"
-    DESCRIPTION = "description"
-
-    EXPECTED_FIELDS = { NAME : str, DESCRIPTION : str, ORDINAL: int }
-    OPTIONAL_FIELDS = { }
-    FIELD_TYPES = { 
-        NAME: str,
-        DESCRIPTION: str,
-        ORDINAL: int
-    }
-
-    def __init__(self, params):
-        super().__init__(params)
-        self._name : str        = self._data[NodeMeshRole.NAME]
-        self._description : str = self._data[NodeMeshRole.DESCRIPTION]
-        self._ordinal : int     = self._data[NodeMeshRole.ORDINAL]
-
-    @property
-    def name(self):
-        """Human readable role name"""
-        return self._name
-
-    @name.setter
-    def name(self, value : str):
-        self._name = value
-        self.set_field_value(NodeMeshRole.NAME, value)
-
-    @property
-    def ordinal(self):
-        """Unique numerical identifier"""
-        return self._ordinal
-
-    @ordinal.setter
-    def ordinal(self, value : int):
-        self._ordinal = value
-        self.set_field_value(NodeMeshRole.ORDINAL, value)
-
-    def __hash__(self):
-        return hash(self.ordinal)
-
-    def __str__(self):
-        return self.name if self.name else ""
-
-    def __repr__(self) -> str:
-        return f'{self.ordinal},{self.name}'
-
-    @staticmethod
-    def get_required_fields() -> dict[str, Type]:
-        return NodeMeshRole.EXPECTED_FIELDS
-
-    @staticmethod
-    def get_optional_fields() -> dict[str, Type]:
-        return NodeMeshRole.OPTIONAL_FIELDS
-
-    @staticmethod
-    def get_field_types():
-        return  NodeMeshRole.FIELD_TYPES
-
 
 @dataclass(eq = False)
 class NodeMeshMembership(BaseDataModel):
     """Describes membership of a node within a mesh topology instance"""
+
+    class Role(Enum):
+        """Responsibility of the node within the mesh"""
+        MEMBER  = 0,
+        GATEWAY = 1
+        ADMIN   = 2
+        ROOT    = 3
 
     NODE_ID     = "node_id"
     MESH_ID     = "mesh_id"
@@ -162,7 +34,7 @@ class NodeMeshMembership(BaseDataModel):
     FIELD_TYPES = { 
         MESH_ID : UUID,
         NODE_ID : UUID,
-        MESH_ROLES : list[NodeMeshRole],
+        MESH_ROLES : list[Role],
         IS_ADMIN : bool,
         IS_ANCHOR : bool,
         IS_ROOT : bool,
@@ -172,14 +44,14 @@ class NodeMeshMembership(BaseDataModel):
 
     def __init__(self, params):
         super().__init__(params)
-        self._mesh_id : UUID                    = self._data[NodeMeshMembership.MESH_ID]
-        self._node_id : UUID                    = self._data[NodeMeshMembership.NODE_ID]
-        self._is_anchor : bool                  = self._data[NodeMeshMembership.IS_ANCHOR]
-        self._mesh_roles : list[NodeMeshRole]   = self._data[NodeMeshMembership.MESH_ROLES]
-        self._is_admin : bool                   = self._data[NodeMeshMembership.IS_ADMIN]
-        self._is_root : bool                    = self._data[NodeMeshMembership.IS_ROOT]
-        self._joined_at : datetime              = self._data[NodeMeshMembership.JOINED_AT]
-        self._last_seen : datetime              = self._data[NodeMeshMembership.LAST_SEEN]
+        self._mesh_id : UUID                                = self._data[NodeMeshMembership.MESH_ID]
+        self._node_id : UUID                                = self._data[NodeMeshMembership.NODE_ID]
+        self._is_anchor : bool                              = self._data[NodeMeshMembership.IS_ANCHOR]
+        self._mesh_roles : list[NodeMeshMembership.Role]    = self._data[NodeMeshMembership.MESH_ROLES]
+        self._is_admin : bool                               = self._data[NodeMeshMembership.IS_ADMIN]
+        self._is_root : bool                                = self._data[NodeMeshMembership.IS_ROOT]
+        self._joined_at : datetime                          = self._data[NodeMeshMembership.JOINED_AT]
+        self._last_seen : datetime                          = self._data[NodeMeshMembership.LAST_SEEN]
 
     @property
     def mesh_id(self):
@@ -217,7 +89,7 @@ class NodeMeshMembership(BaseDataModel):
         return self._mesh_roles
 
     @mesh_roles.setter
-    def mesh_roles(self, value : list[NodeMeshRole]):
+    def mesh_roles(self, value : list[Role]):
         self._mesh_roles = value
         self.set_field_value(NodeMeshMembership.MESH_ROLES, value)
 
@@ -287,6 +159,17 @@ class NodeMeshMembership(BaseDataModel):
 @dataclass(eq = False)
 class NodeMesh(BaseDataModel):
 
+    class Status(Enum):
+        """Current health state of the mesh"""
+        UNKNOWN     = 0,
+        """Need more data to make determination"""
+        MINIMAL     = 1,
+        """Not enough nodes for quarum"""
+        QUORUM      = 2,
+        """Mesh is fully operational"""
+        CALIBRATION = 3
+        """Mesh is still obtaining quorum; not yet fully operational"""
+
     ID              = "id"
     NAME            = "name"
     NODES           = "nodes"
@@ -302,7 +185,7 @@ class NodeMesh(BaseDataModel):
         NAME: str,
         NODES : list[NodeMeshMembership],
         PREDICATES : list[Predicate],
-        STATUS : NodeMeshStatus,
+        STATUS : Status,
         DESCRIPTION: str,
         API_VERSION: Version
     }
@@ -313,7 +196,7 @@ class NodeMesh(BaseDataModel):
         self._name : str                        = self._data[NodeMesh.NAME]
         self._nodes : list[NodeMeshMembership]  = self._data[NodeMesh.NODES]
         self._predicates : list[Predicate]      = self._data[NodeMesh.PREDICATES]
-        self._status : NodeMeshStatus           = self._data[NodeMesh.STATUS]
+        self._status : NodeMesh.Status          = self._data[NodeMesh.STATUS]
         self._description : str                 = self._data[NodeMesh.DESCRIPTION]
         self._api_version : Version             = self._data[NodeMesh.API_VERSION]
 
@@ -363,7 +246,7 @@ class NodeMesh(BaseDataModel):
         return self._status
 
     @status.setter
-    def status(self, value : NodeMeshStatus):
+    def status(self, value : Status):
         self._status = value
         self.set_field_value(NodeMesh.STATUS, value)
 

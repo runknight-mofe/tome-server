@@ -2,104 +2,36 @@ from dataclasses import dataclass
 from typing import Type
 from uuid import UUID
 
-from .base_model import BaseDataModel
-
-
-@dataclass(eq = False)
-class DeviceType(BaseDataModel):
-    """Enumeration for known device types"""
-
-    NAME            = "name"
-    DESCRIPTION     = "description"
-    ORDINAL         = "ordinal"
-
-    EXPECTED_FIELDS = { NAME : str, ORDINAL : int }
-    OPTIONAL_FIELDS = { }
-    FIELD_TYPES = { 
-        NAME : str,
-        DESCRIPTION : str,
-        ORDINAL : int
-    }
-
-    def __init__(self, params):
-        super().__init__(params)
-        self._name : str        = self._data[DeviceType.NAME]
-        self._description : str = self._data[DeviceType.DESCRIPTION]
-        self._ordinal : int     = self._data[DeviceType.ORDINAL]
-
-    @property
-    def name(self):
-        """Device type name"""
-        return self._name
-
-    @name.setter
-    def name(self, value : str):
-        self._name = value
-        self.set_field_value(DeviceType.NAME, value)
-
-    @property
-    def description(self):
-        """Type descriptor"""
-        return self._description
-
-    @description.setter
-    def description(self, value : str):
-        self._description = value
-        self.set_field_value(DeviceType.DESCRIPTION, value)
-
-    @property
-    def ordinal(self):
-        """Type ordinal"""
-        return self._ordinal
-
-    @ordinal.setter
-    def ordinal(self, value : int):
-        self._ordinal = value
-        self.set_field_value(DeviceType.ORDINAL, value)
-
-    def __hash__(self):
-        return hash(self.ordinal)
-
-    def __str__(self):
-        return f'{self.name}'
-
-    def __repr__(self) -> str:
-        return f'{self.ordinal},{self.name}'
-
-    @staticmethod
-    def get_required_fields() -> dict[str, Type]:
-        return DeviceType.EXPECTED_FIELDS
-
-    @staticmethod
-    def get_optional_fields() -> dict[str, Type]:
-        return DeviceType.OPTIONAL_FIELDS
-
-    @staticmethod
-    def get_field_types():
-        return  DeviceType.FIELD_TYPES
-
+from com.runknight.tome.model.device import DeviceType
+from com.runknight.tome.model.base_model import BaseDataModel
 
 @dataclass(eq = False)
-class NodeDevice(BaseDataModel):
+class Node(BaseDataModel):
     """Data model for a Topology Mesh Node."""
 
     ID                      = "id"
+    NAME                    = "name"
+    DESCRIPTION             = "description"
     TYPE                    = "type"
     IS_EMULATED             = "is_emulated"
 
-    EXPECTED_FIELDS = { ID : str, TYPE: dict, IS_EMULATED : bool }
+    EXPECTED_FIELDS = { ID : str, NAME : str, DESCRIPTION : str, TYPE: int, IS_EMULATED : bool }
     OPTIONAL_FIELDS = { }
     FIELD_TYPES = { 
         ID : UUID,
+        NAME : str,
+        DESCRIPTION : str,
         TYPE : DeviceType,
         IS_EMULATED : bool
     }
 
     def __init__(self, params):
         super().__init__(params)
-        self._id : UUID         = self._data[NodeDevice.ID]
-        self._type : DeviceType = self._data[NodeDevice.TYPE]
-        self._is_emulated : bool = self._data[NodeDevice.IS_EMULATED]
+        self._id : UUID             = self._data[Node.ID]
+        self._name : str            = self._data[Node.NAME]
+        self._description : str     = self._data[Node.DESCRIPTION]
+        self._type : DeviceType     = self._data[Node.TYPE]
+        self._is_emulated : bool    = self._data[Node.IS_EMULATED]
 
 
     @property
@@ -110,7 +42,27 @@ class NodeDevice(BaseDataModel):
     @id.setter
     def id(self, value : UUID):
         self._id = value
-        self.set_field_value(NodeDevice.ID, value)
+        self.set_field_value(Node.ID, value)
+
+    @property
+    def name(self):
+        """Human readable name"""
+        return self._name
+
+    @name.setter
+    def name(self, value : str):
+        self._name = value
+        self.set_field_value(Node.NAME, value)
+
+    @property
+    def description(self):
+        """Human readable description"""
+        return self._description
+
+    @description.setter
+    def description(self, value : str):
+        self._description = value
+        self.set_field_value(Node.DESCRIPTION, value)
 
     @property
     def type(self):
@@ -120,7 +72,7 @@ class NodeDevice(BaseDataModel):
     @type.setter
     def type(self, value : DeviceType):
         self._type = value
-        self.set_field_value(NodeDevice.TYPE, value)
+        self.set_field_value(Node.TYPE, value)
 
     @property
     def is_emulated(self):
@@ -130,7 +82,7 @@ class NodeDevice(BaseDataModel):
     @is_emulated.setter
     def is_emulated(self, value : bool):
         self._is_emulated = value
-        self.set_field_value(NodeDevice.IS_EMULATED, value)
+        self.set_field_value(Node.IS_EMULATED, value)
 
     def __hash__(self):
         return hash(self.id)
@@ -143,12 +95,12 @@ class NodeDevice(BaseDataModel):
 
     @staticmethod
     def get_required_fields() -> dict[str, Type]:
-        return NodeDevice.EXPECTED_FIELDS
+        return Node.EXPECTED_FIELDS
 
     @staticmethod
     def get_optional_fields() -> dict[str, Type]:
-        return NodeDevice.OPTIONAL_FIELDS
+        return Node.OPTIONAL_FIELDS
 
     @staticmethod
     def get_field_types():
-        return  NodeDevice.FIELD_TYPES
+        return  Node.FIELD_TYPES

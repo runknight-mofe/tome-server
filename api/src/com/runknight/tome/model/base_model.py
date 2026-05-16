@@ -17,10 +17,28 @@ class BaseDataModel(ABC):
     def __init__(self, params : dict | None = None) -> None:
         self._data = params if params else {}
 
-        # All strings are rendered uppercase
+        field_types = self.get_field_types()
+
         for key, value in self._data.items():
+            if value:
+                field_type = field_types[key]
+                if get_origin(field_type) == list:
+                    list_items: list = value
+                    list_sub_type = get_args(field_type)[0] if get_args(field_type) else type(list_items[0])
+                    {self.validate_init_param(item, key, list_sub_type) for item in list_items}
+                elif get_origin(field_type) == set:
+                    set_items: set = value
+                    set_sub_type = get_args(field_type)[0]
+                    {self.validate_init_param(item, key, set_sub_type) for item in set_items}
+                else:
+                    self.validate_init_param(value, key, field_type)
+
             if isinstance(value, str):
-                self._data[key] = value.upper()
+                self._data[key] = value
+
+    def validate_init_param(self, value: Any, key: str, field_type: type):
+        if not isinstance(value, field_type):
+            raise TypeError(f"Failed to create {type(self)}; type {type(value)} passed for field {key}; expected a {field_type}")
 
     def get_field_value(self, field_name: str, default: Any = None) -> Any:
         """Generic getter that retrieves value from _data dict.

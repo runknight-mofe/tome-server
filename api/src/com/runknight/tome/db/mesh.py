@@ -1,32 +1,70 @@
-from com.runknight.tome.db.connection import DBConnector, cursor
-from com.runknight.tome.model.mesh import NodeMesh
-from .base_repository import BaseRepository
+from com.runknight.tome.db.base_repository import BaseRepository
+from com.runknight.tome.db.connection import DBConnector
+from com.runknight.tome.model.mesh import NodeMesh, NodeMeshMembership
+from com.runknight.tome.model.node import Node
 
-
+# ---------------------------------------------------------------------------
+# MeshRepo  (the original repo from db/__init__.py)
+# Keys: [ID, NAME]
+# status is a NodeMeshStatus ordinal INT in the DB; Python enum reconstructs
+# the full object from that ordinal without a JOIN.
+# nodes resolves to List[Node] via node_mesh_devices join table.
+# predicates resolves to List[Predicate] via node_mesh_predicates join table.
+# ---------------------------------------------------------------------------
 class MeshRepo(BaseRepository[NodeMesh]):
     """Data repository managing instances of NodeMesh """
     
     __model__ = NodeMesh
 
-    SELECT_ALL = "SELECT * FROM node_meshes"
-
     KEYS = [NodeMesh.ID, NodeMesh.NAME]
     
-    def __init__(self, db: DBConnector | None = None, db_params: dict | None = None):
+    def __init__(self, db: DBConnector | None = None,
+                 db_params: dict | None = None):
         super().__init__(MeshRepo.KEYS, db, db_params)
+        self.sql[self.GET]      = "SELECT get_all_node_meshes()"
+        self.sql[self.ADD]      = "SELECT add_many_node_meshes(%s::JSONB)"
+        self.sql[self.UPDATE]   = "SELECT update_many_node_meshes(%s::JSONB)"
+        self.sql[self.REMOVE]   = "SELECT remove_many_node_meshes(%s::JSONB)"
 
-    def sql_get_all(self) -> str:
-        """get all mesh intances sql string"""
-        return MeshRepo.SELECT_ALL
+# ---------------------------------------------------------------------------
+# NodeRepo
+# Manages physical hardware platform definitions.
+# Keys: [ID, NAME]
+# ---------------------------------------------------------------------------
+class NodeRepo(BaseRepository[Node]):
+    """Data repository managing instances of NodeMesh """
+    
+    __model__ = Node
 
-    def sql_add_func(self, placeholder: str) -> str:
-        """SQL for BaseRepository.add_many()"""
-        return "SELECT add_many_node_meshes(%s::JSONB)"
+    KEYS = [Node.ID, Node.NAME]
+    
+    def __init__(self, db: DBConnector | None = None,
+                 db_params: dict | None = None):
+        super().__init__(NodeRepo.KEYS, db, db_params)
+        self.sql[self.GET]      = "SELECT get_all_node_devices()"
+        self.sql[self.ADD]      = "SELECT add_many_node_devices(%s::JSONB)"
+        self.sql[self.UPDATE]   = "SELECT update_many_node_devices(%s::JSONB)"
+        self.sql[self.REMOVE]   = "SELECT remove_many_node_devices(%s::JSONB)"
 
-    def sql_update_func(self, placeholder: str) -> str:
-        """SQL for BaseRepository.update_many()"""
-        return "SELECT update_many_node_meshes(%s::JSONB)"
 
-    def sql_remove_func(self, placeholder: str) -> str:
-        """SQL for BaseRepository.remove_many()"""
-        return "SELECT remove_many_node_meshes(%s::JSONB)"
+# ---------------------------------------------------------------------------
+# NodeMeshMembershipRepo
+# Keys: [NODE_ID, MESH_ID]  (composite identity)
+# mesh_roles round-trips as INT[] of ordinals; the Python NodeMeshRole enum
+# reconstructs full objects from those ordinals without a DB query.
+# ---------------------------------------------------------------------------
+class NodeMeshMembershipRepo(BaseRepository[NodeMeshMembership]):
+    """Repository for NodeMeshMembership instances."""
+ 
+    __model__ = NodeMeshMembership
+
+    KEYS = [NodeMeshMembership.NODE_ID, NodeMeshMembership.MESH_ID]
+ 
+    def __init__(self, db: DBConnector | None = None,
+                 db_params: dict | None = None):
+        super().__init__(NodeMeshMembershipRepo.KEYS, db, db_params)
+        self.sql[self.GET]      = "SELECT get_all_node_mesh_memberships()"
+        self.sql[self.ADD]      = "SELECT add_many_node_mesh_memberships(%s::JSONB)"
+        self.sql[self.UPDATE]   = "SELECT update_many_node_mesh_memberships(%s::JSONB)"
+        self.sql[self.REMOVE]   = "SELECT remove_many_node_mesh_memberships(%s::JSONB)"
+ 

@@ -1,434 +1,279 @@
--- Aether Mesh Management System - PostgreSQL Schema
--- Version: 1.0.0
--- Description: Complete schema for mesh metadata, node state, predicates, and audit trail
-
 -- ============================================================================
--- CORE MESH INFRASTRUCTURE
+-- Aether / Tome Server — PostgreSQL Schema
+--
+-- Design principles applied here:
+--
+--   OPEN-ENDED sets → DB table
+--     DeviceType: physical hardware platforms are operator-defined and
+--     unbounded. New hardware is fielded without a code release.
+--
+--   CLOSED, STATIC sets → Python enum; only ordinal stored in DB
+--     NodeMeshRole   (MEMBER, GATEWAY, ADMIN, ROOT): defined by the
+--       application domain. A new role requires a code change to the MOFE
+--       runtime that interprets it — it will never be added through the UI.
+--     NodeMeshStatus (UNKNOWN, MINIMAL, QUORUM, CALIBRATION): maps 1-to-1
+--       with the MOFE state machine. New states only arrive with a firmware
+--       release. No DB table; ordinal stored as INT in node_meshes.status.
+--
+-- Table inventory
+--   device_types          -- DeviceType         (open-ended hardware platform)
+--   node_devices          -- NodeDevice         (id, name, description, type→FK, is_emulated)
+--   node_mesh_memberships -- NodeMeshMembership (node_id, mesh_id,
+--                                                mesh_roles  INT[]  <- ordinals only,
+--                                                is_admin, is_anchor, is_root,
+--                                                joined_at, last_seen)
+--   predicate_metadata    -- Metadata           (id, name, is_active,
+--                                                created_at, modified_at, description?)
+--   predicates            -- Predicate base    (id, predicate_type, predicate_family, metadata_id->FK)
+--   predicate_geometric   -- Geometric family  (predicate_id->FK, geometry JSONB)
+--   predicate_behavioral  -- Behavioral family (future; commented out until needed)
+--   predicate_ranging     -- Ranging family    (future; commented out until needed)
+--   node_meshes           -- NodeMesh           (id, name, status INT <- ordinal only,
+--                                                description, api_version)
+--   node_mesh_devices     -- NodeMesh<->NodeDevice association (ordered)
+--   node_mesh_predicates  -- NodeMesh<->Predicate association  (ordered)
+--
+-- Dropped tables (replaced by Python enums):
+--   node_mesh_roles    -> NodeMeshRole   enum in code
+--   node_mesh_statuses -> NodeMeshStatus enum in code
 -- ============================================================================
 
--- Meshes table: Stores mesh metadata and identifying information
-CREATE TABLE meshes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(255) NOT NULL,
+-- ---------------------------------------------------------------------------
+-- DeviceType  (ordinal INT, name VARCHAR, description TEXT,
+--              manufacturer VARCHAR, ranging_method INT,
+--              supports_aoa BOOLEAN, max_update_rate_hz FLOAT8,
+--              typical_accuracy_m FLOAT8)
+--
+-- Represents a physical hardware platform, not a topology role.
+-- The topology role (anchor vs client) lives on NodeMeshMembership.is_anchor.
+--
+-- ranging_method stores the RangingMethod enum ordinal (Python enum in code):
+--   0  TWR       Two-Way Ranging       (each node drives the exchange)
+--   1  TDOA      Time Difference of Arrival (infrastructure-side calculation)
+--   2  TWR_TDOA  Hardware supports both modes; mode selected at runtime
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_types (
+    ordinal            INT          PRIMARY KEY,
+    name               VARCHAR(255) NOT NULL UNIQUE,
+    description        TEXT,
+    manufacturer       VARCHAR(255),
+    ranging_method     INT          NOT NULL DEFAULT 0,
+    supports_aoa       BOOLEAN      NOT NULL DEFAULT FALSE,
+    max_update_rate_hz FLOAT8,
+    typical_accuracy_m FLOAT8
+);
+
+-- ---------------------------------------------------------------------------
+-- NodeDevice  (id UUID, name VARCHAR, description TEXT,
+--              type DeviceType, is_emulated BOOLEAN)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS node_devices (
+    id          UUID         PRIMARY KEY,
+    name        VARCHAR(255) NOT NULL,
     description TEXT,
-    status VARCHAR(50) NOT NULL DEFAULT 'active' 
-        CHECK (status IN ('active', 'archived', 'deleted', 'suspended')),
-    root_node_id VARCHAR(255),  -- ID of the ROOT anchor for this mesh
-    operating_mode VARCHAR(50) NOT NULL DEFAULT 'unknown'
-        CHECK (operating_mode IN ('unknown', 'minimal', 'quorum', 'calibration')),
-    coordinate_frame_metadata JSONB,  -- Stored frame data for recovery
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by_node_id VARCHAR(255),
-    UNIQUE(name)
+    type        INT          NOT NULL REFERENCES device_types(ordinal),
+    is_emulated BOOLEAN      NOT NULL DEFAULT FALSE
 );
 
--- Nodes table: Stores node membership, type, and state
-CREATE TABLE nodes (
-    id VARCHAR(255) NOT NULL,
-    mesh_id UUID NOT NULL REFERENCES meshes(id) ON DELETE CASCADE,
-    type VARCHAR(50) NOT NULL 
-        CHECK (type IN ('anchor', 'client')),
-    role VARCHAR(50) DEFAULT 'member'
-        CHECK (role IN ('member', 'gateway', 'admin', 'root')),
-    
-    -- Physical state
-    position_x FLOAT8,
-    position_y FLOAT8,
-    position_z FLOAT8,
-    
-    -- Quaternion orientation (for emulated devices)
-    orientation_qx FLOAT8 DEFAULT 0.0,
-    orientation_qy FLOAT8 DEFAULT 0.0,
-    orientation_qz FLOAT8 DEFAULT 0.0,
-    orientation_qw FLOAT8 DEFAULT 1.0,
-    
-    -- Acceleration (m/s^2) for emulated devices
-    accel_x FLOAT8 DEFAULT 0.0,
-    accel_y FLOAT8 DEFAULT 0.0,
-    accel_z FLOAT8 DEFAULT 0.0,
-    
-    -- Node health & comms
-    status VARCHAR(50) NOT NULL DEFAULT 'offline'
-        CHECK (status IN ('online', 'offline', 'degraded', 'error')),
-    signal_quality FLOAT8 DEFAULT 0.0 CHECK (signal_quality BETWEEN 0 AND 1),
-    rssi FLOAT8 DEFAULT -120.0,  -- dBm
-    
-    -- Mesh participation
-    is_admin BOOLEAN DEFAULT FALSE,
-    is_root BOOLEAN DEFAULT FALSE,
-    is_emulated BOOLEAN DEFAULT FALSE,  -- Mark as software-emulated device
-    last_seen TIMESTAMP WITH TIME ZONE,
-    joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Metadata
-    metadata JSONB,  -- Device-specific properties (vendor, fw version, etc.)
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    PRIMARY KEY (mesh_id, id)
+CREATE INDEX IF NOT EXISTS idx_node_devices_type        ON node_devices(type);
+CREATE INDEX IF NOT EXISTS idx_node_devices_is_emulated ON node_devices(is_emulated);
+
+-- ---------------------------------------------------------------------------
+-- NodeMeshMembership
+--   node_id    UUID
+--   mesh_id    UUID
+--   mesh_roles INT[]     NodeMeshRole ordinals only.  The Python enum
+--                        provides name/description; no DB table needed.
+--                        0=MEMBER  1=GATEWAY  2=ADMIN  3=ROOT
+--   is_admin   BOOLEAN
+--   is_anchor  BOOLEAN   TRUE=anchor (fixed, known position)
+--                        FALSE=client/tag (mobile, unknown position)
+--                        Topology role relocated from DeviceType.
+--   is_root    BOOLEAN
+--   joined_at  TIMESTAMPTZ
+--   last_seen  TIMESTAMPTZ
+--
+-- mesh_id FK added via ALTER after node_meshes is defined below.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS node_mesh_memberships (
+    node_id    UUID                     NOT NULL,
+    mesh_id    UUID                     NOT NULL,
+    mesh_roles INT[]                    NOT NULL DEFAULT '{}',
+    is_admin   BOOLEAN                  NOT NULL DEFAULT FALSE,
+    is_anchor  BOOLEAN                  NOT NULL DEFAULT FALSE,
+    is_root    BOOLEAN                  NOT NULL DEFAULT FALSE,
+    joined_at  TIMESTAMP WITH TIME ZONE NOT NULL,
+    last_seen  TIMESTAMP WITH TIME ZONE,
+    PRIMARY KEY (node_id, mesh_id)
 );
 
--- ============================================================================
--- PREDICATES & EVENT DETECTION
--- ============================================================================
+CREATE INDEX IF NOT EXISTS idx_nmm_mesh_id  ON node_mesh_memberships(mesh_id);
+CREATE INDEX IF NOT EXISTS idx_nmm_node_id  ON node_mesh_memberships(node_id);
+CREATE INDEX IF NOT EXISTS idx_nmm_is_root  ON node_mesh_memberships(is_root);
+CREATE INDEX IF NOT EXISTS idx_nmm_is_admin ON node_mesh_memberships(is_admin);
 
--- Predicates table: Geometric shapes for event detection
-CREATE TABLE predicates (
-    id VARCHAR(255) NOT NULL,
-    mesh_id UUID NOT NULL REFERENCES meshes(id) ON DELETE CASCADE,
-    type VARCHAR(50) NOT NULL 
-        CHECK (type IN ('point', 'line', 'box', 'circle', 'sphere', 'cylinder')),
-    
-    -- Anchor point (all predicates have a position reference)
-    position_x FLOAT8 NOT NULL,
-    position_y FLOAT8 NOT NULL,
-    position_z FLOAT8 NOT NULL,
-    
-    -- Geometry-specific properties (stored as JSON for flexibility)
-    -- Examples:
-    -- line: {"end_x": 5.0, "end_y": 2.0, "end_z": 1.0}
-    -- box: {"width": 2.0, "height": 1.5, "depth": 1.0}
-    -- circle: {"radius": 0.5, "normal_x": 0, "normal_y": 0, "normal_z": 1}
-    -- sphere: {"radius": 1.5}
-    -- cylinder: {"radius": 0.3, "height": 2.0, "axis_x": 0, "axis_y": 0, "axis_z": 1}
-    geometry JSONB NOT NULL,
-    
-    -- Event configuration
-    hysteresis FLOAT8 DEFAULT 0.05,  -- Proximity hysteresis in meters
-    enabled BOOLEAN DEFAULT TRUE,
-    
-    -- Event detector reference
-    event_type VARCHAR(100),  -- proximity, boundary, gesture, collision, etc.
-    event_id VARCHAR(255),    -- ID of associated event detector
-    
-    -- Metadata
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by_node_id VARCHAR(255),
-    
-    PRIMARY KEY (mesh_id, id),
-    FOREIGN KEY (mesh_id, event_id) REFERENCES mesh_event_detectors(mesh_id, id) 
-        ON DELETE SET NULL
+-- ---------------------------------------------------------------------------
+-- Metadata  (id UUID, name VARCHAR, is_active BOOLEAN,
+--            created_at TIMESTAMPTZ, modified_at TIMESTAMPTZ,
+--            description TEXT  [OPTIONAL_FIELDS])
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS predicate_metadata (
+    id          UUID                     PRIMARY KEY,
+    name        VARCHAR(255)             NOT NULL,
+    is_active   BOOLEAN                  NOT NULL DEFAULT TRUE,
+    created_at  TIMESTAMP WITH TIME ZONE NOT NULL,
+    modified_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    description TEXT
 );
 
--- Event detectors table: Manages predicate-based event rules
-CREATE TABLE mesh_event_detectors (
-    id VARCHAR(255) NOT NULL,
-    mesh_id UUID NOT NULL REFERENCES meshes(id) ON DELETE CASCADE,
-    predicate_id VARCHAR(255),
-    
-    -- Event rule
-    event_type VARCHAR(100) NOT NULL,
-    trigger_on_entry BOOLEAN DEFAULT TRUE,
-    trigger_on_exit BOOLEAN DEFAULT TRUE,
-    trigger_on_dwell BOOLEAN DEFAULT FALSE,
-    dwell_duration_ms INTEGER DEFAULT NULL,
-    
-    -- Configuration
-    enabled BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    PRIMARY KEY (mesh_id, id),
-    FOREIGN KEY (mesh_id, predicate_id) REFERENCES predicates(mesh_id, id) 
-        ON DELETE CASCADE
+CREATE INDEX IF NOT EXISTS idx_pred_meta_name      ON predicate_metadata(name);
+CREATE INDEX IF NOT EXISTS idx_pred_meta_is_active ON predicate_metadata(is_active);
+
+-- ---------------------------------------------------------------------------
+-- Predicates — Class Table Inheritance (base + family child tables)
+--
+-- Pattern: one base table for identity and shared fields; one child table
+-- per predicate FAMILY (not per subtype) storing geometry as JSONB.
+--
+-- Why JSONB geometry per family rather than named columns per subtype:
+--   - Adding a new subtype within a family (e.g. Cylinder under geometric)
+--     requires zero schema migration — only a new Python class.
+--   - Adding a new family (e.g. behavioral, ranging) requires one new child
+--     table (CREATE TABLE — non-blocking, no data touched).
+--   - The alternative (named columns per subtype, STI) multiplies nullable
+--     columns on every row and locks the table on every ALTER TABLE ADD COLUMN.
+--   - Python from_dict() already handles JSONB->typed-object via
+--     DataModelServices.deserialize_value; no extra deserialisation cost.
+--
+-- Current families:
+--   GEOMETRIC(0)   — spatial predicates (Point, LineSegment, Plane, Sphere, Box)
+--   BEHAVIORAL(1)  — future: GesturePattern, DwellZone, MotionPath
+--   RANGING(2)     — future: RangingThreshold, SignalQualityFilter
+--
+-- Adding a new geometric subtype (e.g. Cylinder):
+--   1. Write the Python class.
+--   2. Register its type string in the PREDICATE_FAMILY map (Python const).
+--   3. Zero SQL changes.
+--
+-- Adding a new family (e.g. BEHAVIORAL):
+--   1. Write the Python class(es).
+--   2. Add the family string to PREDICATE_FAMILY map.
+--   3. CREATE TABLE predicate_behavioral (...) — one safe DDL statement.
+-- ---------------------------------------------------------------------------
+
+-- Base table: identity, discriminator, metadata FK.
+-- predicate_type is a smallint — an ordinal bound to the Predicate.Type
+-- enumeration defined in the data model
+CREATE TABLE IF NOT EXISTS predicates (
+    id             UUID         PRIMARY KEY,
+    predicate_type smallint  NOT NULL,
+    predicate_family smallint NOT NULL
+        CHECK (predicate_family IN (0, 1, 2)),
+    metadata_id    UUID         NOT NULL REFERENCES predicate_metadata(id)
+        ON DELETE RESTRICT
 );
 
--- ============================================================================
--- EVENTS & AUDIT TRAIL
--- ============================================================================
+CREATE INDEX IF NOT EXISTS idx_predicates_type        ON predicates(predicate_type);
+CREATE INDEX IF NOT EXISTS idx_predicates_family      ON predicates(predicate_family);
+CREATE INDEX IF NOT EXISTS idx_predicates_metadata_id ON predicates(metadata_id);
 
--- Mesh events table: Complete audit and event history
-CREATE TABLE mesh_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    mesh_id UUID NOT NULL REFERENCES meshes(id) ON DELETE CASCADE,
-    
-    -- Event source & classification
-    source VARCHAR(50) NOT NULL 
-        CHECK (source IN ('user', 'runtime', 'system', 'api')),
-    event_type VARCHAR(100) NOT NULL,
-    severity VARCHAR(50) DEFAULT 'info'
-        CHECK (severity IN ('debug', 'info', 'warn', 'error', 'critical')),
-    
-    -- Event participants
-    predicate_id VARCHAR(255),
-    node_id VARCHAR(255),
-    triggered_by_node_id VARCHAR(255),  -- Which node detected/triggered
-    
-    -- Event details
-    event_data JSONB,  -- Flexible event-specific data
-    message TEXT,
-    
-    -- Timing
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    duration_ms INTEGER DEFAULT NULL,  -- For events with duration (dwell, motion, etc.)
-    
-    -- Traceability
-    request_id VARCHAR(255),  -- Correlate with API requests
-    
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+-- ---------------------------------------------------------------------------
+-- predicate_geometric  (family child for all spatial predicate subtypes)
+--
+-- geometry JSONB stores the subtype-specific spatial data.
+-- The Python class determines how to interpret it; the DB stores it opaquely.
+--
+-- Point:       {"location": {"x":0,"y":0,"z":0}}
+-- LineSegment: {"start":{"x":0,"y":0,"z":0}, "end":{"x":1,"y":0,"z":0}}
+-- Plane:       {"point":{"x":0,"y":0,"z":0}, "normal":{"x":0,"y":0,"z":1}}
+-- Sphere:      {"point":{"x":0,"y":0,"z":0}, "radius":1.5}
+-- Box:         {"min_extent":{"x":0,"y":0,"z":0}, "max_extent":{"x":1,"y":1,"z":1}}
+-- Cylinder:    {"point":{"x":0,"y":0,"z":0}, "axis":{"x":0,"y":0,"z":1},
+--               "radius":0.5, "height":2.0}   <- no migration required
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS predicate_geometric (
+    predicate_id UUID PRIMARY KEY REFERENCES predicates(id) ON DELETE CASCADE,
+    geometry     JSONB NOT NULL
 );
 
--- ============================================================================
--- RANGING & OBSERVATION HISTORY
--- ============================================================================
+-- ---------------------------------------------------------------------------
+-- predicate_behavioral  (family child — future non-geometric predicates)
+-- Placeholder: CREATE when the first behavioral predicate type is implemented.
+-- config JSONB stores the subtype-specific detection parameters.
+-- ---------------------------------------------------------------------------
+-- CREATE TABLE IF NOT EXISTS predicate_behavioral (
+--     predicate_id UUID PRIMARY KEY REFERENCES predicates(id) ON DELETE CASCADE,
+--     config       JSONB NOT NULL
+-- );
 
--- Ranging measurements table: Historical ranging data for analysis
-CREATE TABLE ranging_measurements (
-    id BIGSERIAL PRIMARY KEY,
-    mesh_id UUID NOT NULL REFERENCES meshes(id) ON DELETE CASCADE,
-    anchor_id VARCHAR(255) NOT NULL,
-    target_id VARCHAR(255) NOT NULL,
-    
-    distance FLOAT8 NOT NULL,
-    variance FLOAT8,
-    signal_quality FLOAT8,
-    rssi FLOAT8,  -- dBm
-    nlos BOOLEAN DEFAULT FALSE,
-    
-    azimuth FLOAT8,  -- Angle of Arrival (if available)
-    elevation FLOAT8,
-    
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Diagnostics
-    measurement_type VARCHAR(50),  -- 'uwb', 'twr', 'twound'
-    cycle_id BIGINT  -- Group measurements in same ranging cycle
-);
+-- ---------------------------------------------------------------------------
+-- predicate_ranging  (family child — future ranging / signal predicates)
+-- Placeholder: CREATE when the first ranging predicate type is implemented.
+-- ---------------------------------------------------------------------------
+-- CREATE TABLE IF NOT EXISTS predicate_ranging (
+--     predicate_id UUID PRIMARY KEY REFERENCES predicates(id) ON DELETE CASCADE,
+--     config       JSONB NOT NULL
+-- );
 
--- ============================================================================
--- AUTHENTICATION & ACCESS CONTROL
--- ============================================================================
-
--- Admin tokens table: API access tokens for authenticated operations
-CREATE TABLE admin_tokens (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    mesh_id UUID NOT NULL REFERENCES meshes(id) ON DELETE CASCADE,
-    node_id VARCHAR(255) NOT NULL,
-    
-    token_hash VARCHAR(255) NOT NULL UNIQUE,  -- bcrypt hash
-    token_type VARCHAR(50) DEFAULT 'api_key'
-        CHECK (token_type IN ('api_key', 'jwt')),
-    
-    scope VARCHAR(255) DEFAULT 'mesh:admin'
-        CHECK (scope IN ('mesh:admin', 'mesh:write', 'mesh:read')),
-    
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP WITH TIME ZONE,
-    last_used_at TIMESTAMP WITH TIME ZONE,
-    
-    is_active BOOLEAN DEFAULT TRUE,
-    UNIQUE(mesh_id, node_id)
-);
-
--- ============================================================================
--- MESH STATE & SNAPSHOTS
--- ============================================================================
-
--- Mesh state snapshots: Point-in-time mesh configuration for recovery
-CREATE TABLE mesh_state_snapshots (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    mesh_id UUID NOT NULL REFERENCES meshes(id) ON DELETE CASCADE,
-    
-    -- State snapshot
-    nodes_json JSONB NOT NULL,          -- Complete node catalog
-    predicates_json JSONB NOT NULL,     -- Complete predicate catalog
-    frame_data_json JSONB,              -- Coordinate frame state
-    operating_mode VARCHAR(50),
-    gdop FLOAT8,
-    anchor_count INTEGER,
-    client_count INTEGER,
-    
-    -- Metadata
-    source VARCHAR(50) DEFAULT 'periodic'
-        CHECK (source IN ('periodic', 'manual', 'recovery')),
-    snapshot_reason TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Keep recent snapshots for rollback capability
-    created_by_node_id VARCHAR(255)
-);
-
--- ============================================================================
--- PERFORMANCE & DIAGNOSTICS
--- ============================================================================
-
--- Mesh health metrics: Rolling health status snapshots
-CREATE TABLE mesh_health_metrics (
-    id BIGSERIAL PRIMARY KEY,
-    mesh_id UUID NOT NULL REFERENCES meshes(id) ON DELETE CASCADE,
-    
-    -- Topology metrics
-    anchor_count INTEGER,
-    client_count INTEGER,
-    online_node_count INTEGER,
-    offline_node_count INTEGER,
-    average_signal_quality FLOAT8,
-    
-    -- Fusion metrics
-    gdop FLOAT8,
-    position_residual_rms FLOAT8,
-    update_frequency_hz FLOAT8,
-    
-    -- Events
-    event_count_1min INTEGER DEFAULT 0,
-    event_count_5min INTEGER DEFAULT 0,
-    
-    -- Timing
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- ============================================================================
--- INDEXES FOR QUERY PERFORMANCE
--- ============================================================================
-
--- Nodes indexes
-CREATE INDEX idx_nodes_mesh_id ON nodes(mesh_id);
-CREATE INDEX idx_nodes_status ON nodes(status);
-CREATE INDEX idx_nodes_type ON nodes(type);
-CREATE INDEX idx_nodes_is_root ON nodes(is_root);
-CREATE INDEX idx_nodes_joined_at ON nodes(joined_at DESC);
-
--- Predicates indexes
-CREATE INDEX idx_predicates_mesh_id ON predicates(mesh_id);
-CREATE INDEX idx_predicates_type ON predicates(type);
-CREATE INDEX idx_predicates_enabled ON predicates(enabled);
-
--- Events indexes
-CREATE INDEX idx_mesh_events_mesh_id ON mesh_events(mesh_id);
-CREATE INDEX idx_mesh_events_timestamp ON mesh_events(timestamp DESC);
-CREATE INDEX idx_mesh_events_type ON mesh_events(event_type);
-CREATE INDEX idx_mesh_events_node_id ON mesh_events(node_id);
-CREATE INDEX idx_mesh_events_predicate_id ON mesh_events(predicate_id);
-CREATE INDEX idx_mesh_events_request_id ON mesh_events(request_id);
-
--- Ranging measurements indexes
-CREATE INDEX idx_ranging_mesh_id ON ranging_measurements(mesh_id);
-CREATE INDEX idx_ranging_timestamp ON ranging_measurements(timestamp DESC);
-CREATE INDEX idx_ranging_cycle_id ON ranging_measurements(cycle_id);
-
--- Token indexes
-CREATE INDEX idx_admin_tokens_mesh_id ON admin_tokens(mesh_id);
-CREATE INDEX idx_admin_tokens_active ON admin_tokens(is_active) WHERE is_active = TRUE;
-
--- Health metrics indexes
-CREATE INDEX idx_health_mesh_id ON mesh_health_metrics(mesh_id);
-CREATE INDEX idx_health_timestamp ON mesh_health_metrics(timestamp DESC);
-
--- Snapshots indexes
-CREATE INDEX idx_snapshots_mesh_id ON mesh_state_snapshots(mesh_id);
-CREATE INDEX idx_snapshots_created_at ON mesh_state_snapshots(created_at DESC);
-
--- ============================================================================
--- CONSTRAINTS & REFERENTIAL INTEGRITY
--- ============================================================================
-
--- Foreign key constraints
-ALTER TABLE nodes
-    ADD CONSTRAINT fk_nodes_mesh_id 
-    FOREIGN KEY (mesh_id) REFERENCES meshes(id) ON DELETE CASCADE;
-
-ALTER TABLE predicates
-    ADD CONSTRAINT fk_predicates_mesh_id 
-    FOREIGN KEY (mesh_id) REFERENCES meshes(id) ON DELETE CASCADE;
-
--- Ensure mesh_event_detectors references valid predicates
-ALTER TABLE mesh_event_detectors
-    ADD CONSTRAINT fk_events_predicate 
-    FOREIGN KEY (mesh_id, predicate_id) REFERENCES predicates(mesh_id, id) 
-    ON DELETE CASCADE;
-
--- ============================================================================
--- VIEWS FOR COMMON QUERIES
--- ============================================================================
-
--- Mesh topology view: Quick access to mesh state
-CREATE VIEW v_mesh_topology AS
-SELECT 
-    m.id,
-    m.name,
-    m.status,
-    m.operating_mode,
-    COUNT(DISTINCT CASE WHEN n.type = 'anchor' THEN n.id END) as anchor_count,
-    COUNT(DISTINCT CASE WHEN n.type = 'client' THEN n.id END) as client_count,
-    COUNT(DISTINCT CASE WHEN n.status = 'online' THEN n.id END) as online_count,
-    COUNT(DISTINCT CASE WHEN n.status = 'offline' THEN n.id END) as offline_count,
-    AVG(n.signal_quality) as avg_signal_quality,
-    MAX(n.updated_at) as last_update,
-    COUNT(DISTINCT p.id) as predicate_count
-FROM meshes m
-LEFT JOIN nodes n ON m.id = n.mesh_id
-LEFT JOIN predicates p ON m.id = p.mesh_id
-GROUP BY m.id, m.name, m.status, m.operating_mode;
-
--- Node status view: Current node state summary
-CREATE VIEW v_node_status AS
-SELECT 
-    mesh_id,
-    id,
-    type,
-    status,
-    signal_quality,
-    position_x,
-    position_y,
-    position_z,
-    is_root,
-    is_admin,
-    is_emulated,
-    last_seen,
-    joined_at,
-    EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - last_seen)) as seconds_since_seen
-FROM nodes;
-
--- Event timeline view: Recent events with context
-CREATE VIEW v_recent_events AS
-SELECT 
-    me.id,
-    me.mesh_id,
-    me.timestamp,
-    me.event_type,
-    me.severity,
-    me.message,
-    me.node_id,
-    me.predicate_id,
-    n.type as node_type,
-    p.type as predicate_type,
-    me.event_data,
-    EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - me.timestamp)) as seconds_ago
-FROM mesh_events me
-LEFT JOIN nodes n ON me.mesh_id = n.mesh_id AND me.node_id = n.id
-LEFT JOIN predicates p ON me.mesh_id = p.mesh_id AND me.predicate_id = p.id
-ORDER BY me.timestamp DESC;
-
--- ============================================================================
--- MIGRATION & VERSION TRACKING
--- ============================================================================
-
-CREATE TABLE schema_versions (
-    id SERIAL PRIMARY KEY,
-    version VARCHAR(50) NOT NULL UNIQUE,
+-- ---------------------------------------------------------------------------
+-- NodeMesh  (id UUID, name VARCHAR,
+--            status INT   NodeMeshStatus ordinal only.  The Python enum
+--                         provides name/description; no DB table needed.
+--                         0=UNKNOWN  1=MINIMAL  2=QUORUM  3=CALIBRATION
+--            description TEXT, api_version VARCHAR)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS node_meshes (
+    id          UUID         PRIMARY KEY,
+    name        VARCHAR(255) NOT NULL UNIQUE,
+    status      INT          NOT NULL DEFAULT 0,
     description TEXT,
-    applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    api_version VARCHAR(50)
 );
 
--- Record initial schema version
-INSERT INTO schema_versions (version, description) VALUES 
-    ('1.0.0', 'Initial Aether Mesh Management schema');
+CREATE INDEX IF NOT EXISTS idx_node_meshes_name   ON node_meshes(name);
+CREATE INDEX IF NOT EXISTS idx_node_meshes_status ON node_meshes(status);
 
--- ============================================================================
--- GRANTS & PERMISSIONS (adjust user names as needed)
--- ============================================================================
+-- ---------------------------------------------------------------------------
+-- node_mesh_devices  (NodeMesh <-> NodeDevice, ordered list)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS node_mesh_devices (
+    mesh_id   UUID NOT NULL REFERENCES node_meshes(id)  ON DELETE CASCADE,
+    device_id UUID NOT NULL REFERENCES node_devices(id) ON DELETE CASCADE,
+    position  INT  NOT NULL DEFAULT 0,
+    PRIMARY KEY (mesh_id, device_id)
+);
 
--- Assuming you have these database roles:
--- - aether_app: Application service account
--- - aether_readonly: Read-only reporting account
--- - aether_admin: Schema management (your deploy user)
+CREATE INDEX IF NOT EXISTS idx_nmd_mesh_id ON node_mesh_devices(mesh_id);
 
--- GRANT ALL PRIVILEGES ON DATABASE aether_mesh TO aether_app;
--- GRANT CONNECT ON DATABASE aether_mesh TO aether_readonly;
--- GRANT SELECT ON ALL TABLES IN SCHEMA public TO aether_readonly;
+-- ---------------------------------------------------------------------------
+-- node_mesh_predicates  (NodeMesh <-> Predicate, ordered list)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS node_mesh_predicates (
+    mesh_id      UUID NOT NULL REFERENCES node_meshes(id)  ON DELETE CASCADE,
+    predicate_id UUID NOT NULL REFERENCES predicates(id)   ON DELETE CASCADE,
+    position     INT  NOT NULL DEFAULT 0,
+    PRIMARY KEY (mesh_id, predicate_id)
+);
 
--- ============================================================================
--- END OF SCHEMA
--- ============================================================================
+CREATE INDEX IF NOT EXISTS idx_nmp_mesh_id ON node_mesh_predicates(mesh_id);
+
+-- ---------------------------------------------------------------------------
+-- Deferred FK: node_mesh_memberships.mesh_id -> node_meshes(id)
+-- ---------------------------------------------------------------------------
+ALTER TABLE node_mesh_memberships
+    ADD CONSTRAINT fk_nmm_mesh_id
+    FOREIGN KEY (mesh_id) REFERENCES node_meshes(id) ON DELETE CASCADE;
+
+-- ---------------------------------------------------------------------------
+-- Schema version
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS schema_versions (
+    version     VARCHAR(50) PRIMARY KEY,
+    description TEXT,
+    applied_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+INSERT INTO schema_versions (version, description)
+VALUES ('1.0.0',
+        'DeviceType is physical hardware platform; NodeMeshRole/Status are Python enums; ANCHOR/CLIENT topology role on NodeMeshMembership.is_anchor; predicate CTI+JSONB family pattern')
+ON CONFLICT DO NOTHING;

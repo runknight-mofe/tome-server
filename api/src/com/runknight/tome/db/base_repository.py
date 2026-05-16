@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 import logging
 from typing import Any, Generic,  TypeVar
 
@@ -12,10 +11,15 @@ log_handler.setFormatter(logging.Formatter('%(asctime)s\t%(levelname)s\t%(messag
 
 T = TypeVar('T', bound=BaseDataModel)
 
-class BaseRepository(ABC, Generic[T]):
+class BaseRepository(Generic[T]):
     """Base service layer for data object managers"""
 
     __model__ : type[T]
+
+    GET     = 0
+    ADD     = 1
+    UPDATE  = 2
+    REMOVE  = 3
 
     def __init__(self, keys: list[str], db: DBConnector | None = None, db_params : dict | None = None):
         self.logger = logging.getLogger(__name__)
@@ -32,7 +36,9 @@ class BaseRepository(ABC, Generic[T]):
         self.keys = keys
         """list of indices by which managed objects are mapped"""
 
-        self.all_items: set[T]
+        self.sql = dict[int,str]()
+
+        self.all_items: set[T] = set()
         """Flat set of all managed objects"""
 
         self.indices: dict[str, dict[Any, T]] = { key : {} for key in keys }
@@ -40,22 +46,6 @@ class BaseRepository(ABC, Generic[T]):
 
         self.initialized = False
         """Initialization flag for data dict; data dict is lazy loaded"""
-
-    @abstractmethod
-    def sql_get_all(self) -> str:
-        raise NotImplementedError(f'type{self}.sql_get_all undefined.')
-
-    @abstractmethod
-    def sql_add_func(self, placeholder: str) -> str:
-        raise NotImplementedError(f'type{self} does not implement required "sql_add_func" method.')
-
-    @abstractmethod
-    def sql_update_func(self, placeholder: str) -> str:
-        raise NotImplementedError(f'type{self} does not implement required "sql_update_func" method.')
-
-    @abstractmethod
-    def sql_remove_func(self, placeholder: str) -> str:
-        raise NotImplementedError(f'type{self} does not implement required "sql_remove_func" method.')
 
     def initialize(self) -> bool:
         """Prime the repository
@@ -88,11 +78,11 @@ class BaseRepository(ABC, Generic[T]):
         """
         try:
             results = self.connector.execute(
-                sql = self.sql_get_all(),
+                sql = self.sql[self.GET],
                 fetchMany=True
             )
             if results:
-                for result in results[0]:
+                for result in results:
                     item = self.__model__.from_dict(result)
                     self.all_items.add(item)
                     for key in self.keys:
@@ -110,6 +100,9 @@ class BaseRepository(ABC, Generic[T]):
         Returns:
             bool: True if the deletion is successful, False otherwise
         """
+        if not (self.initialized or self.initialize()):
+            raise RuntimeError(f'Failed {type(self)}.delete_all; repo not initialized; check underlying DB connection')
+
         try:
             self.remove_many(self.all_items)
             return True
@@ -184,7 +177,7 @@ class BaseRepository(ABC, Generic[T]):
 
             # Add the objects to the underlying DB
             placeholder = ', '.join(['%s'] * len(serialized))
-            sql = self.sql_add_func(placeholder)
+            sql = self.sql[self.ADD]
             self.logger.debug(f"{type(self)}::add func SQL: {sql}")
             results = self.connector.execute(sql, serialized, fetchMany = True)
 
@@ -194,9 +187,10 @@ class BaseRepository(ABC, Generic[T]):
                 for result in results:
                     # Add it to the local repo and return dict
                     added: T = self.__model__.from_dict(result)
+                    self.all_items.add(added)
+                    added_items.append(added)
                     for key in self.keys:
                         self.indices[key][added.get_field_value(key)] = added
-                        added_items.append(added)
 
         return added_items
 
@@ -237,7 +231,7 @@ class BaseRepository(ABC, Generic[T]):
             serialized= [Json(user.to_dict()) for user in to_update]
 
             placeholder = ', '.join(['%s'] * len(serialized))
-            sql = self.sql_update_func(placeholder)
+            sql = self.sql[self.UPDATE]
             results = self.connector.execute(sql, serialized, fetchMany = True)
 
             # If users are successfully updated in DB
@@ -245,9 +239,11 @@ class BaseRepository(ABC, Generic[T]):
                 # Iterate over each added word, updating local repo entries
                 for result in results:
                     obj: T = self.__model__.from_dict(result)
+                    self.all_items.discard(obj)
+                    self.all_items.add(obj)
+                    updated.append(obj)
                     for key in self.keys:
                         self.indices[key][obj.get_field_value(key)] = obj
-                        updated.append(obj)
 
         return updated
 
@@ -298,7 +294,7 @@ class BaseRepository(ABC, Generic[T]):
 
             # Remove Objects.  Removed set is returned
             placeholder = ', '.join(['%s'] * len(to_remove_serialized))
-            sql = self.sql_remove_func(placeholder)
+            sql = self.sql[self.REMOVE]
             self.logger.debug(f"{type(self)}::remove func SQL: {sql}")
             results = self.connector.execute(
                 sql,
@@ -313,9 +309,10 @@ class BaseRepository(ABC, Generic[T]):
                 for result in results:
                     # Pop each from local repo and add to return dict
                     obj: T = self.__model__.from_dict(result)
+                    self.all_items.remove(obj)
+                    removed.append(obj)
                     for key in self.keys:
                         self.indices[key].pop(obj.get_field_value(key))
-                        removed.append(obj)
 
                     # TODO:  Add event emits for DB changes
                     # Notify listeners of the removed user

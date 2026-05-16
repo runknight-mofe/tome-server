@@ -1,1 +1,1 @@
-from . import connection, base_repository, mesh
+from . import connection, base_repository, mesh, device, predicate
