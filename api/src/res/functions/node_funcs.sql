@@ -1,3 +1,7 @@
+-- ============================================================================
+-- Private helpers
+-- ============================================================================
+
 -- Build a fully-populated DeviceType JSONB from an ordinal.
 -- Includes all columns: name, description, manufacturer, ranging_method,
 -- supports_aoa, max_update_rate_hz, typical_accuracy_m.
@@ -58,7 +62,7 @@ BEGIN
              v_row->>'name',
              v_row->>'description',
              v_row->>'manufacturer',
-            COALESCE(v_row->>'ranging_method', 0),
+            COALESCE((v_row->>'ranging_method')::INT, 0),
             COALESCE((v_row->>'supports_aoa')::BOOLEAN,  FALSE),
             (v_row->>'max_update_rate_hz')::FLOAT8,
             (v_row->>'typical_accuracy_m')::FLOAT8
@@ -81,7 +85,7 @@ BEGIN
         SET name               = COALESCE(v_row->>'name',               name),
             description        = COALESCE(v_row->>'description',        description),
             manufacturer       = COALESCE(v_row->>'manufacturer',       manufacturer),
-            ranging_method     = COALESCE(v_row->>'ranging_method',     ranging_method),
+            ranging_method     = COALESCE((v_row->>'ranging_method')::INT, ranging_method),
             supports_aoa       = COALESCE((v_row->>'supports_aoa')::BOOLEAN, supports_aoa),
             max_update_rate_hz = COALESCE((v_row->>'max_update_rate_hz')::FLOAT8, max_update_rate_hz),
             typical_accuracy_m = COALESCE((v_row->>'typical_accuracy_m')::FLOAT8, typical_accuracy_m)

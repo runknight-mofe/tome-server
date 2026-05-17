@@ -21,10 +21,10 @@ class MeshRepo(BaseRepository[NodeMesh]):
     def __init__(self, db: DBConnector | None = None,
                  db_params: dict | None = None):
         super().__init__(MeshRepo.KEYS, db, db_params)
-        self.sql[self.GET]      = "SELECT get_all_node_meshes()"
-        self.sql[self.ADD]      = "SELECT add_many_node_meshes(%s::JSONB)"
-        self.sql[self.UPDATE]   = "SELECT update_many_node_meshes(%s::JSONB)"
-        self.sql[self.REMOVE]   = "SELECT remove_many_node_meshes(%s::JSONB)"
+        self.sql[self.GET]      = "get_all_node_meshes"
+        self.sql[self.ADD]      = "add_many_node_meshes"
+        self.sql[self.UPDATE]   = "update_many_node_meshes"
+        self.sql[self.REMOVE]   = "remove_many_node_meshes"
 
 # ---------------------------------------------------------------------------
 # NodeRepo
@@ -41,10 +41,10 @@ class NodeRepo(BaseRepository[Node]):
     def __init__(self, db: DBConnector | None = None,
                  db_params: dict | None = None):
         super().__init__(NodeRepo.KEYS, db, db_params)
-        self.sql[self.GET]      = "SELECT get_all_node_devices()"
-        self.sql[self.ADD]      = "SELECT add_many_node_devices(%s::JSONB)"
-        self.sql[self.UPDATE]   = "SELECT update_many_node_devices(%s::JSONB)"
-        self.sql[self.REMOVE]   = "SELECT remove_many_node_devices(%s::JSONB)"
+        self.sql[self.GET]      = "get_all_node_devices"
+        self.sql[self.ADD]      = "add_many_node_devices"
+        self.sql[self.UPDATE]   = "update_many_node_devices"
+        self.sql[self.REMOVE]   = "remove_many_node_devices"
 
 
 # ---------------------------------------------------------------------------
@@ -63,8 +63,8 @@ class NodeMeshMembershipRepo(BaseRepository[NodeMeshMembership]):
     def __init__(self, db: DBConnector | None = None,
                  db_params: dict | None = None):
         super().__init__(NodeMeshMembershipRepo.KEYS, db, db_params)
-        self.sql[self.GET]      = "SELECT get_all_node_mesh_memberships()"
-        self.sql[self.ADD]      = "SELECT add_many_node_mesh_memberships(%s::JSONB)"
-        self.sql[self.UPDATE]   = "SELECT update_many_node_mesh_memberships(%s::JSONB)"
-        self.sql[self.REMOVE]   = "SELECT remove_many_node_mesh_memberships(%s::JSONB)"
+        self.sql[self.GET]      = "get_all_node_mesh_memberships"
+        self.sql[self.ADD]      = "add_many_node_mesh_memberships"
+        self.sql[self.UPDATE]   = "update_many_node_mesh_memberships"
+        self.sql[self.REMOVE]   = "remove_many_node_mesh_memberships"
  

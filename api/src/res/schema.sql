@@ -15,27 +15,38 @@
 --       with the MOFE state machine. New states only arrive with a firmware
 --       release. No DB table; ordinal stored as INT in node_meshes.status.
 --
+--   VALUE OBJECTS → columns on the owning entity's table, not a separate table
+--     Metadata (name, is_active, created_at, modified_at, description?):
+--     has no independent identity or lifecycle outside the Predicate that owns
+--     it.  Fields dissolved directly into the predicates table, consistent
+--     with how name/description are handled on NodeDevice, DeviceType,
+--     NodeMesh, and every other model class.
+--
 -- Table inventory
 --   device_types          -- DeviceType         (open-ended hardware platform)
 --   node_devices          -- NodeDevice         (id, name, description, type→FK, is_emulated)
 --   node_mesh_memberships -- NodeMeshMembership (node_id, mesh_id,
---                                                mesh_roles  INT[]  <- ordinals only,
+--                                                mesh_roles  INT[]  ← ordinals only,
 --                                                is_admin, is_anchor, is_root,
 --                                                joined_at, last_seen)
---   predicate_metadata    -- Metadata           (id, name, is_active,
---                                                created_at, modified_at, description?)
---   predicates            -- Predicate base    (id, predicate_type, predicate_family, metadata_id->FK)
---   predicate_geometric   -- Geometric family  (predicate_id->FK, geometry JSONB)
---   predicate_behavioral  -- Behavioral family (future; commented out until needed)
---   predicate_ranging     -- Ranging family    (future; commented out until needed)
---   node_meshes           -- NodeMesh           (id, name, status INT <- ordinal only,
+--   predicates            -- Predicate base     (id, name, is_active,
+--                                                created_at, modified_at, description?,
+--                                                predicate_type smallint,
+--                                                predicate_family smallint)
+--   predicate_geometric   -- Geometric family   (predicate_id→FK, geometry JSONB)
+--   predicate_behavioral  -- Behavioral family  (future; commented out until needed)
+--   predicate_ranging     -- Ranging family     (future; commented out until needed)
+--   node_meshes           -- NodeMesh           (id, name, status INT ← ordinal only,
 --                                                description, api_version)
---   node_mesh_devices     -- NodeMesh<->NodeDevice association (ordered)
---   node_mesh_predicates  -- NodeMesh<->Predicate association  (ordered)
+--   node_mesh_predicates  -- NodeMesh↔Predicate association (ordered)
 --
--- Dropped tables (replaced by Python enums):
---   node_mesh_roles    -> NodeMeshRole   enum in code
---   node_mesh_statuses -> NodeMeshStatus enum in code
+-- NodeMesh.nodes resolves to List[NodeMeshMembership] via node_mesh_memberships.mesh_id.
+-- No separate join table is required; the membership FK is the association.
+--
+-- Dropped tables (replaced by Python enums or dissolved into owning entity):
+--   node_mesh_roles    → NodeMeshRole   enum in code
+--   node_mesh_statuses → NodeMeshStatus enum in code
+--   predicate_metadata → columns dissolved into predicates table
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -65,7 +76,7 @@ CREATE TABLE IF NOT EXISTS device_types (
 
 -- ---------------------------------------------------------------------------
 -- NodeDevice  (id UUID, name VARCHAR, description TEXT,
---              type DeviceType, is_emulated BOOLEAN)
+--              type INT→FK, is_emulated BOOLEAN)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS node_devices (
     id          UUID         PRIMARY KEY,
@@ -80,23 +91,23 @@ CREATE INDEX IF NOT EXISTS idx_node_devices_is_emulated ON node_devices(is_emula
 
 -- ---------------------------------------------------------------------------
 -- NodeMeshMembership
---   node_id    UUID
---   mesh_id    UUID
---   mesh_roles INT[]     NodeMeshRole ordinals only.  The Python enum
---                        provides name/description; no DB table needed.
---                        0=MEMBER  1=GATEWAY  2=ADMIN  3=ROOT
---   is_admin   BOOLEAN
---   is_anchor  BOOLEAN   TRUE=anchor (fixed, known position)
---                        FALSE=client/tag (mobile, unknown position)
---                        Topology role relocated from DeviceType.
---   is_root    BOOLEAN
---   joined_at  TIMESTAMPTZ
---   last_seen  TIMESTAMPTZ
---
--- mesh_id FK added via ALTER after node_meshes is defined below.
+--   node_id   UUID → node_devices(id) ON DELETE CASCADE
+--             If a device is physically decommissioned and its NodeDevice
+--             record deleted, all mesh memberships cascade away automatically.
+--   mesh_id   UUID → node_meshes(id)  ON DELETE CASCADE (deferred ALTER below)
+--   mesh_roles INT[] NodeMeshRole ordinals only. Python enum provides
+--                    name/description; no DB table needed.
+--                    0=MEMBER  1=GATEWAY  2=ADMIN  3=ROOT
+--   is_admin  BOOLEAN
+--   is_anchor BOOLEAN  TRUE=anchor (fixed, known position)
+--                      FALSE=client/tag (mobile, unknown position)
+--   is_root   BOOLEAN
+--   joined_at TIMESTAMPTZ
+--   last_seen TIMESTAMPTZ
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS node_mesh_memberships (
-    node_id    UUID                     NOT NULL,
+    node_id    UUID                     NOT NULL REFERENCES node_devices(id)
+                                            ON DELETE CASCADE,
     mesh_id    UUID                     NOT NULL,
     mesh_roles INT[]                    NOT NULL DEFAULT '{}',
     is_admin   BOOLEAN                  NOT NULL DEFAULT FALSE,
@@ -113,112 +124,89 @@ CREATE INDEX IF NOT EXISTS idx_nmm_is_root  ON node_mesh_memberships(is_root);
 CREATE INDEX IF NOT EXISTS idx_nmm_is_admin ON node_mesh_memberships(is_admin);
 
 -- ---------------------------------------------------------------------------
--- Metadata  (id UUID, name VARCHAR, is_active BOOLEAN,
---            created_at TIMESTAMPTZ, modified_at TIMESTAMPTZ,
---            description TEXT  [OPTIONAL_FIELDS])
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS predicate_metadata (
-    id          UUID                     PRIMARY KEY,
-    name        VARCHAR(255)             NOT NULL,
-    is_active   BOOLEAN                  NOT NULL DEFAULT TRUE,
-    created_at  TIMESTAMP WITH TIME ZONE NOT NULL,
-    modified_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    description TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_pred_meta_name      ON predicate_metadata(name);
-CREATE INDEX IF NOT EXISTS idx_pred_meta_is_active ON predicate_metadata(is_active);
-
--- ---------------------------------------------------------------------------
 -- Predicates — Class Table Inheritance (base + family child tables)
 --
--- Pattern: one base table for identity and shared fields; one child table
--- per predicate FAMILY (not per subtype) storing geometry as JSONB.
+-- Metadata fields (name, is_active, created_at, modified_at, description) are
+-- dissolved directly into this table.  Metadata is a Value Object — it has no
+-- independent identity or lifecycle outside the Predicate that owns it.
+-- Keeping it as a separate table required a JOIN on every predicate read, an
+-- ownership trigger for cascade deletion, and a redundant UUID.  Dissolving it
+-- is consistent with how name/description are handled on every other model
+-- class (NodeDevice, DeviceType, NodeMesh).
 --
--- Why JSONB geometry per family rather than named columns per subtype:
---   - Adding a new subtype within a family (e.g. Cylinder under geometric)
---     requires zero schema migration — only a new Python class.
---   - Adding a new family (e.g. behavioral, ranging) requires one new child
---     table (CREATE TABLE — non-blocking, no data touched).
---   - The alternative (named columns per subtype, STI) multiplies nullable
---     columns on every row and locks the table on every ALTER TABLE ADD COLUMN.
---   - Python from_dict() already handles JSONB->typed-object via
---     DataModelServices.deserialize_value; no extra deserialisation cost.
+-- predicate_type   smallint — Predicate.Type enum ordinal:
+--   0=POINT  1=LINE_SEGMENT  2=PLANE  3=SPHERE  4=BOX
+--   No CHECK constraint: new subtypes added without schema migration.
 --
--- Current families:
---   GEOMETRIC(0)   — spatial predicates (Point, LineSegment, Plane, Sphere, Box)
---   BEHAVIORAL(1)  — future: GesturePattern, DwellZone, MotionPath
---   RANGING(2)     — future: RangingThreshold, SignalQualityFilter
+-- predicate_family smallint — Predicate.Family enum ordinal:
+--   0=GEOMETRIC  1=BEHAVIOR  2=RANGING
+--   CHECK on known family ordinals; new families require a new child table
+--   anyway, so adding a CHECK value is the appropriate migration at that point.
 --
--- Adding a new geometric subtype (e.g. Cylinder):
---   1. Write the Python class.
---   2. Register its type string in the PREDICATE_FAMILY map (Python const).
---   3. Zero SQL changes.
---
--- Adding a new family (e.g. BEHAVIORAL):
---   1. Write the Python class(es).
---   2. Add the family string to PREDICATE_FAMILY map.
---   3. CREATE TABLE predicate_behavioral (...) — one safe DDL statement.
+-- Why JSONB geometry per family child rather than named columns per subtype:
+--   - New subtype within a family → zero schema migration, new Python class only.
+--   - New family → one CREATE TABLE on a new empty table (non-blocking).
+--   - STI (named columns per subtype) multiplies NULLs and requires ALTER TABLE
+--     ADD COLUMN on every subtype addition.
 -- ---------------------------------------------------------------------------
-
--- Base table: identity, discriminator, metadata FK.
--- predicate_type is a smallint — an ordinal bound to the Predicate.Type
--- enumeration defined in the data model
 CREATE TABLE IF NOT EXISTS predicates (
-    id             UUID         PRIMARY KEY,
-    predicate_type smallint  NOT NULL,
-    predicate_family smallint NOT NULL
-        CHECK (predicate_family IN (0, 1, 2)),
-    metadata_id    UUID         NOT NULL REFERENCES predicate_metadata(id)
-        ON DELETE RESTRICT
+    id               UUID                     PRIMARY KEY,
+    -- Metadata fields (Value Object dissolved into owning entity)
+    name             VARCHAR(255)             NOT NULL,
+    is_active        BOOLEAN                  NOT NULL DEFAULT TRUE,
+    created_at       TIMESTAMP WITH TIME ZONE NOT NULL,
+    modified_at      TIMESTAMP WITH TIME ZONE NOT NULL,
+    description      TEXT,
+    -- Predicate discriminators
+    predicate_type   smallint                 NOT NULL,
+    predicate_family smallint                 NOT NULL
+        CHECK (predicate_family IN (0, 1, 2))
 );
 
+CREATE INDEX IF NOT EXISTS idx_predicates_name        ON predicates(name);
+CREATE INDEX IF NOT EXISTS idx_predicates_is_active   ON predicates(is_active);
 CREATE INDEX IF NOT EXISTS idx_predicates_type        ON predicates(predicate_type);
 CREATE INDEX IF NOT EXISTS idx_predicates_family      ON predicates(predicate_family);
-CREATE INDEX IF NOT EXISTS idx_predicates_metadata_id ON predicates(metadata_id);
 
 -- ---------------------------------------------------------------------------
--- predicate_geometric  (family child for all spatial predicate subtypes)
+-- predicate_geometric  (family child — Predicate.Family.GEOMETRIC = 0)
 --
--- geometry JSONB stores the subtype-specific spatial data.
--- The Python class determines how to interpret it; the DB stores it opaquely.
+-- geometry JSONB stores subtype-specific spatial data opaquely.
+-- The Python class interprets the keys; the DB stores them without parsing.
 --
 -- Point:       {"location": {"x":0,"y":0,"z":0}}
 -- LineSegment: {"start":{"x":0,"y":0,"z":0}, "end":{"x":1,"y":0,"z":0}}
 -- Plane:       {"point":{"x":0,"y":0,"z":0}, "normal":{"x":0,"y":0,"z":1}}
 -- Sphere:      {"point":{"x":0,"y":0,"z":0}, "radius":1.5}
 -- Box:         {"min_extent":{"x":0,"y":0,"z":0}, "max_extent":{"x":1,"y":1,"z":1}}
--- Cylinder:    {"point":{"x":0,"y":0,"z":0}, "axis":{"x":0,"y":0,"z":1},
---               "radius":0.5, "height":2.0}   <- no migration required
+-- Cylinder:    {"point":{...}, "axis":{...}, "radius":0.5, "height":2.0}  ← no migration
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS predicate_geometric (
-    predicate_id UUID PRIMARY KEY REFERENCES predicates(id) ON DELETE CASCADE,
+    predicate_id UUID  PRIMARY KEY REFERENCES predicates(id) ON DELETE CASCADE,
     geometry     JSONB NOT NULL
 );
 
 -- ---------------------------------------------------------------------------
--- predicate_behavioral  (family child — future non-geometric predicates)
+-- predicate_behavioral  (family child — Predicate.Family.BEHAVIOR = 1)
 -- Placeholder: CREATE when the first behavioral predicate type is implemented.
--- config JSONB stores the subtype-specific detection parameters.
 -- ---------------------------------------------------------------------------
 -- CREATE TABLE IF NOT EXISTS predicate_behavioral (
---     predicate_id UUID PRIMARY KEY REFERENCES predicates(id) ON DELETE CASCADE,
+--     predicate_id UUID  PRIMARY KEY REFERENCES predicates(id) ON DELETE CASCADE,
 --     config       JSONB NOT NULL
 -- );
 
 -- ---------------------------------------------------------------------------
--- predicate_ranging  (family child — future ranging / signal predicates)
+-- predicate_ranging  (family child — Predicate.Family.RANGING = 2)
 -- Placeholder: CREATE when the first ranging predicate type is implemented.
 -- ---------------------------------------------------------------------------
 -- CREATE TABLE IF NOT EXISTS predicate_ranging (
---     predicate_id UUID PRIMARY KEY REFERENCES predicates(id) ON DELETE CASCADE,
+--     predicate_id UUID  PRIMARY KEY REFERENCES predicates(id) ON DELETE CASCADE,
 --     config       JSONB NOT NULL
 -- );
 
 -- ---------------------------------------------------------------------------
 -- NodeMesh  (id UUID, name VARCHAR,
---            status INT   NodeMeshStatus ordinal only.  The Python enum
---                         provides name/description; no DB table needed.
+--            status INT — NodeMeshStatus ordinal; Python enum provides detail.
 --                         0=UNKNOWN  1=MINIMAL  2=QUORUM  3=CALIBRATION
 --            description TEXT, api_version VARCHAR)
 -- ---------------------------------------------------------------------------
@@ -234,19 +222,8 @@ CREATE INDEX IF NOT EXISTS idx_node_meshes_name   ON node_meshes(name);
 CREATE INDEX IF NOT EXISTS idx_node_meshes_status ON node_meshes(status);
 
 -- ---------------------------------------------------------------------------
--- node_mesh_devices  (NodeMesh <-> NodeDevice, ordered list)
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS node_mesh_devices (
-    mesh_id   UUID NOT NULL REFERENCES node_meshes(id)  ON DELETE CASCADE,
-    device_id UUID NOT NULL REFERENCES node_devices(id) ON DELETE CASCADE,
-    position  INT  NOT NULL DEFAULT 0,
-    PRIMARY KEY (mesh_id, device_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_nmd_mesh_id ON node_mesh_devices(mesh_id);
-
--- ---------------------------------------------------------------------------
--- node_mesh_predicates  (NodeMesh <-> Predicate, ordered list)
+-- node_mesh_predicates  (NodeMesh ↔ Predicate, ordered list)
+-- position preserves List[Predicate] ordering from NodeMesh.predicates.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS node_mesh_predicates (
     mesh_id      UUID NOT NULL REFERENCES node_meshes(id)  ON DELETE CASCADE,
@@ -258,7 +235,8 @@ CREATE TABLE IF NOT EXISTS node_mesh_predicates (
 CREATE INDEX IF NOT EXISTS idx_nmp_mesh_id ON node_mesh_predicates(mesh_id);
 
 -- ---------------------------------------------------------------------------
--- Deferred FK: node_mesh_memberships.mesh_id -> node_meshes(id)
+-- Deferred FK: node_mesh_memberships.mesh_id → node_meshes(id)
+-- node_mesh_memberships is defined before node_meshes; FK added here.
 -- ---------------------------------------------------------------------------
 ALTER TABLE node_mesh_memberships
     ADD CONSTRAINT fk_nmm_mesh_id
@@ -274,6 +252,7 @@ CREATE TABLE IF NOT EXISTS schema_versions (
 );
 
 INSERT INTO schema_versions (version, description)
-VALUES ('1.0.0',
-        'DeviceType is physical hardware platform; NodeMeshRole/Status are Python enums; ANCHOR/CLIENT topology role on NodeMeshMembership.is_anchor; predicate CTI+JSONB family pattern')
+VALUES ('7.0.0',
+        'Metadata dissolved into predicates; predicate_type/family=smallint ordinals; '
+        'node_id FK cascade; NodeMesh.nodes=List[NodeMeshMembership]')
 ON CONFLICT DO NOTHING;

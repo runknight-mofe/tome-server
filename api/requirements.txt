@@ -7,4 +7,3 @@ packaging
 requests
 runknight-py-utils
 marshmallow
-vector3d

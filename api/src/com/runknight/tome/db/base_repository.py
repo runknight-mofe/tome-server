@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Generic,  TypeVar
 
-from ..model.base_model import BaseDataModel
+from com.runknight.model.base_model import BaseDataModel
 
 from .connection import DBConnector
 from psycopg2.extras import Json
@@ -78,7 +78,7 @@ class BaseRepository(Generic[T]):
         """
         try:
             results = self.connector.execute(
-                sql = self.sql[self.GET],
+                sql = f"SELECT {self.sql[self.GET]}()",
                 fetchMany=True
             )
             if results:
@@ -128,7 +128,7 @@ class BaseRepository(Generic[T]):
         if not field:
             field = self.keys[0]
 
-        return self.indices[field][arg]
+        return self.indices[field][arg] if arg in self.indices[field] else None
 
     def add(self, arg: T):
         """Add managed object
@@ -177,7 +177,7 @@ class BaseRepository(Generic[T]):
 
             # Add the objects to the underlying DB
             placeholder = ', '.join(['%s'] * len(serialized))
-            sql = self.sql[self.ADD]
+            sql = f"SELECT {self.sql[self.ADD]}({placeholder}::JSONB)"
             self.logger.debug(f"{type(self)}::add func SQL: {sql}")
             results = self.connector.execute(sql, serialized, fetchMany = True)
 
@@ -231,7 +231,7 @@ class BaseRepository(Generic[T]):
             serialized= [Json(user.to_dict()) for user in to_update]
 
             placeholder = ', '.join(['%s'] * len(serialized))
-            sql = self.sql[self.UPDATE]
+            sql = f"SELECT {self.sql[self.UPDATE]}({placeholder}::JSONB)"
             results = self.connector.execute(sql, serialized, fetchMany = True)
 
             # If users are successfully updated in DB
@@ -294,7 +294,7 @@ class BaseRepository(Generic[T]):
 
             # Remove Objects.  Removed set is returned
             placeholder = ', '.join(['%s'] * len(to_remove_serialized))
-            sql = self.sql[self.REMOVE]
+            sql = f"SELECT {self.sql[self.REMOVE]}({placeholder}::JSONB)"
             self.logger.debug(f"{type(self)}::remove func SQL: {sql}")
             results = self.connector.execute(
                 sql,

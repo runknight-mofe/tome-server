@@ -3,7 +3,7 @@ from typing import Type
 from uuid import UUID
 
 from com.runknight.tome.model.device import DeviceType
-from com.runknight.tome.model.base_model import BaseDataModel
+from com.runknight.model.base_model import BaseDataModel
 
 @dataclass(eq = False)
 class Node(BaseDataModel):
@@ -15,7 +15,7 @@ class Node(BaseDataModel):
     TYPE                    = "type"
     IS_EMULATED             = "is_emulated"
 
-    EXPECTED_FIELDS = { ID : str, NAME : str, DESCRIPTION : str, TYPE: int, IS_EMULATED : bool }
+    EXPECTED_FIELDS = { ID : str, NAME : str, DESCRIPTION : str, TYPE: dict, IS_EMULATED : bool }
     OPTIONAL_FIELDS = { }
     FIELD_TYPES = { 
         ID : UUID,

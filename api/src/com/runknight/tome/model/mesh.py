@@ -5,7 +5,7 @@ from packaging.version import Version
 from typing import Type
 from uuid import UUID
 
-from .base_model import BaseDataModel
+from com.runknight.model.base_model import BaseDataModel
 from .predicate.geometric import Predicate
 
 
@@ -15,7 +15,7 @@ class NodeMeshMembership(BaseDataModel):
 
     class Role(Enum):
         """Responsibility of the node within the mesh"""
-        MEMBER  = 0,
+        MEMBER  = 0
         GATEWAY = 1
         ADMIN   = 2
         ROOT    = 3
@@ -47,7 +47,7 @@ class NodeMeshMembership(BaseDataModel):
         self._mesh_id : UUID                                = self._data[NodeMeshMembership.MESH_ID]
         self._node_id : UUID                                = self._data[NodeMeshMembership.NODE_ID]
         self._is_anchor : bool                              = self._data[NodeMeshMembership.IS_ANCHOR]
-        self._mesh_roles : list[NodeMeshMembership.Role]    = self._data[NodeMeshMembership.MESH_ROLES]
+        self._mesh_roles : list[NodeMeshMembership.Role]    = self._data[NodeMeshMembership.MESH_ROLES] if NodeMeshMembership.MESH_ROLES in self._data else []
         self._is_admin : bool                               = self._data[NodeMeshMembership.IS_ADMIN]
         self._is_root : bool                                = self._data[NodeMeshMembership.IS_ROOT]
         self._joined_at : datetime                          = self._data[NodeMeshMembership.JOINED_AT]
@@ -161,11 +161,11 @@ class NodeMesh(BaseDataModel):
 
     class Status(Enum):
         """Current health state of the mesh"""
-        UNKNOWN     = 0,
+        UNKNOWN     = 0
         """Need more data to make determination"""
-        MINIMAL     = 1,
+        MINIMAL     = 1
         """Not enough nodes for quarum"""
-        QUORUM      = 2,
+        QUORUM      = 2
         """Mesh is fully operational"""
         CALIBRATION = 3
         """Mesh is still obtaining quorum; not yet fully operational"""
@@ -178,7 +178,7 @@ class NodeMesh(BaseDataModel):
     DESCRIPTION     = "description"
     API_VERSION     = "api_version"
 
-    EXPECTED_FIELDS = { ID : str, NAME : str, NODES : list, PREDICATES : list, DESCRIPTION : str, API_VERSION: str, STATUS : dict }
+    EXPECTED_FIELDS = { ID : str, NAME : str, NODES : list, PREDICATES : list, DESCRIPTION : str, API_VERSION: str, STATUS : int }
     OPTIONAL_FIELDS = { }
     FIELD_TYPES = { 
         ID : UUID,

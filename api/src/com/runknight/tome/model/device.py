@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Type
 
-from com.runknight.tome.model.base_model import BaseDataModel
+from com.runknight.model.base_model import BaseDataModel
 
 @dataclass(eq = False)
 class DeviceType(BaseDataModel):
@@ -10,25 +10,25 @@ class DeviceType(BaseDataModel):
 
     class RangingMethod(Enum):
         """Supported ranging methods"""
-        TWR         = 0,
+        TWR         = 0
         """Two-Way Ranging  (each node participates in the exchange)"""
-        TDOA        = 1,
+        TDOA        = 1
         """Time Difference of Arrival (infrastructure-side calculation)"""
-        TWR_TDOA    = 2,
+        TWR_TDOA    = 2
         """Hardware supports both TWR and TDOA modes"""
 
     class KnownTypes(Enum):
         """Support enumeration for rapidly tagging device types"""
-        EMULATED_GENERIC    = 0,
-        EMULATED_AOA        = 1,
-        QORVO               = 10,
-        SEWIO_RTLS          = 100,
-        POZYX               = 200,
-        UBISENSE            = 300,
-        BESPOON             = 400,
-        APPLE_UI            = 500,
-        NXP_TRIMENSION      = 600,
-        CUSTOM              = 700,
+        EMULATED_GENERIC    = 0
+        EMULATED_AOA        = 1
+        QORVO               = 10
+        SEWIO_RTLS          = 100
+        POZYX               = 200
+        UBISENSE            = 300
+        BESPOON             = 400
+        APPLE_UI            = 500
+        NXP_TRIMENSION      = 600
+        CUSTOM              = 700
 
     ORDINAL             = "ordinal"
     NAME                = "name"
@@ -46,7 +46,7 @@ class DeviceType(BaseDataModel):
         MANUFACTURER: str,
         RANGING_METHOD : int,
         SUPPORTS_AOA : bool,
-        MAX_UPDATE_RATE_HZ : float,
+        MAX_UPDATE_RATE_HZ : int,
         TYPICAL_ACCURACY_M : float 
     }
 
@@ -58,7 +58,7 @@ class DeviceType(BaseDataModel):
         MANUFACTURER: str,
         RANGING_METHOD : RangingMethod,
         SUPPORTS_AOA : bool,
-        MAX_UPDATE_RATE_HZ : float,
+        MAX_UPDATE_RATE_HZ : int,
         TYPICAL_ACCURACY_M : float 
     }
 
@@ -70,7 +70,7 @@ class DeviceType(BaseDataModel):
         self._manufacturer : str                        = self._data[DeviceType.MANUFACTURER]
         self._ranging_method : DeviceType.RangingMethod = self._data[DeviceType.RANGING_METHOD]
         self._supports_aoa : bool                       = self._data[DeviceType.SUPPORTS_AOA]
-        self._max_update_rate_hz : float                = self._data[DeviceType.MAX_UPDATE_RATE_HZ]
+        self._max_update_rate_hz : int                = self._data[DeviceType.MAX_UPDATE_RATE_HZ]
         self._typical_accuracy_m : float                = self._data[DeviceType.TYPICAL_ACCURACY_M]
 
 
@@ -140,7 +140,7 @@ class DeviceType(BaseDataModel):
         return self._max_update_rate_hz
 
     @max_update_rate_hz.setter
-    def max_update_rate_hz(self, value : float):
+    def max_update_rate_hz(self, value : int):
         self._max_update_rate_hz = value
         self.set_field_value(DeviceType.MAX_UPDATE_RATE_HZ, value)
 

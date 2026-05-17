@@ -6,7 +6,7 @@ from psycopg2 import DatabaseError
 from psycopg2.extensions import connection, cursor
 from psycopg2.pool import ThreadedConnectionPool
 
-from data.validation import validateData
+from com.runknight.common.validation import validateData
 
 log_handler = logging.StreamHandler()
 log_handler.setFormatter(logging.Formatter('%(asctime)s\t%(levelname)s\t%(message)s'))

@@ -1,1 +1,1 @@
-from . import node, mesh, base_model
+from . import node, mesh

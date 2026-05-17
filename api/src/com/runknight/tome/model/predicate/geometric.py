@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Type
-from vector3d.vector import Vector
 
 from com.runknight.tome.model.predicate.base import Predicate
+from com.runknight.common.math import Vector3
 
 @dataclass(eq = False)
 class Point(Predicate):
@@ -10,13 +10,16 @@ class Point(Predicate):
 
     LOCATION       = "location"
 
-    EXPECTED_FIELDS = { LOCATION : dict }
-    OPTIONAL_FIELDS = { }
-    FIELD_TYPES = { LOCATION : Vector, }
+    EXPECTED_FIELDS = { LOCATION : dict } | Predicate.EXPECTED_FIELDS
+    OPTIONAL_FIELDS = { } | Predicate.OPTIONAL_FIELDS
+    FIELD_TYPES = { LOCATION : Vector3, } | Predicate.FIELD_TYPES
 
     def __init__(self, params):
-        super().__init__(params)
-        self._location : Vector     = self._data[Point.LOCATION]
+        super().__init__(params | {
+            Predicate.FAMILY : Predicate.Family.GEOMETRIC,
+            Predicate.TYPE : Predicate.PredicateType.POINT,
+        })
+        self._location : Vector3     = self._data[Point.LOCATION]
 
     @property
     def location(self):
@@ -24,21 +27,21 @@ class Point(Predicate):
         return self._location
 
     @location.setter
-    def location(self, value : Vector):
+    def location(self, value : Vector3):
         self._location = value
         self.set_field_value(Point.LOCATION, value)
 
     @staticmethod
     def get_required_fields() -> dict[str, Type]:
-        return Point.EXPECTED_FIELDS | Predicate.EXPECTED_FIELDS
+        return Point.EXPECTED_FIELDS 
 
     @staticmethod
     def get_optional_fields() -> dict[str, Type]:
-        return Point.OPTIONAL_FIELDS | Predicate.OPTIONAL_FIELDS
+        return Point.OPTIONAL_FIELDS 
 
     @staticmethod
     def get_field_types():
-        return  Point.FIELD_TYPES | Predicate.FIELD_TYPES
+        return  Point.FIELD_TYPES
 
 
 @dataclass(eq = False)
@@ -48,17 +51,20 @@ class LineSegment(Predicate):
     START       = "start"
     END         = "end"
 
-    EXPECTED_FIELDS = { START : dict, END : dict }
-    OPTIONAL_FIELDS = { }
+    EXPECTED_FIELDS = { START : dict, END : dict } | Predicate.EXPECTED_FIELDS
+    OPTIONAL_FIELDS = { } | Predicate.OPTIONAL_FIELDS
     FIELD_TYPES = { 
-        START : Vector,
-        END : Vector,
-    }
+        START : Vector3,
+        END : Vector3,
+    } | Predicate.FIELD_TYPES
 
     def __init__(self, params):
-        super().__init__(params)
-        self._start : Vector        = self._data[LineSegment.START]
-        self._end : Vector          = self._data[LineSegment.END]
+        super().__init__(params | {
+            Predicate.FAMILY : Predicate.Family.GEOMETRIC,
+            Predicate.TYPE : Predicate.PredicateType.LINE_SEGMENT,
+        })
+        self._start : Vector3        = self._data[LineSegment.START]
+        self._end : Vector3          = self._data[LineSegment.END]
 
     @property
     def start(self):
@@ -66,7 +72,7 @@ class LineSegment(Predicate):
         return self._start
 
     @start.setter
-    def start(self, value : Vector):
+    def start(self, value : Vector3):
         self._start = value
         self.set_field_value(LineSegment.START, value)
 
@@ -77,21 +83,21 @@ class LineSegment(Predicate):
         return self._end
 
     @end.setter
-    def end(self, value : Vector):
+    def end(self, value : Vector3):
         self._end = value
         self.set_field_value(LineSegment.END, value)
 
     @staticmethod
     def get_required_fields() -> dict[str, Type]:
-        return LineSegment.EXPECTED_FIELDS | Predicate.EXPECTED_FIELDS
+        return LineSegment.EXPECTED_FIELDS
 
     @staticmethod
     def get_optional_fields() -> dict[str, Type]:
-        return LineSegment.OPTIONAL_FIELDS | Predicate.OPTIONAL_FIELDS
+        return LineSegment.OPTIONAL_FIELDS
 
     @staticmethod
     def get_field_types():
-        return  LineSegment.FIELD_TYPES | Predicate.FIELD_TYPES
+        return  LineSegment.FIELD_TYPES
     
 @dataclass(eq = False)
 class Plane(Predicate):
@@ -100,17 +106,20 @@ class Plane(Predicate):
     POINT       = "point"
     NORMAL      = "normal"
 
-    EXPECTED_FIELDS = { POINT : dict, NORMAL : dict }
-    OPTIONAL_FIELDS = { }
+    EXPECTED_FIELDS = { POINT : dict, NORMAL : dict } | Predicate.EXPECTED_FIELDS
+    OPTIONAL_FIELDS = { } | Predicate.OPTIONAL_FIELDS
     FIELD_TYPES = { 
-        POINT : Vector,
-        NORMAL : Vector
-    }
+        POINT : Vector3,
+        NORMAL : Vector3
+    } | Predicate.FIELD_TYPES
 
     def __init__(self, params):
-        super().__init__(params)
-        self._point : Vector        = self._data[Plane.POINT]
-        self._normal : Vector       = self._data[Plane.NORMAL]
+        super().__init__(params | {
+            Predicate.FAMILY : Predicate.Family.GEOMETRIC,
+            Predicate.TYPE : Predicate.PredicateType.PLANE,
+        })
+        self._point : Vector3        = self._data[Plane.POINT]
+        self._normal : Vector3       = self._data[Plane.NORMAL]
 
     @property
     def point(self):
@@ -118,32 +127,32 @@ class Plane(Predicate):
         return self._point
 
     @point.setter
-    def point(self, value : Vector):
+    def point(self, value : Vector3):
         self._point = value
         self.set_field_value(Plane.POINT, value)
 
     @property
     def normal(self):
-        """Vector normal to XY Plane"""
+        """Vector3 normal to XY Plane"""
         return self._normal
 
     @normal.setter
-    def normal(self, value : Vector):
+    def normal(self, value : Vector3):
         self._normal = value
         self.set_field_value(Plane.NORMAL, value)
 
 
     @staticmethod
     def get_required_fields() -> dict[str, Type]:
-        return Plane.EXPECTED_FIELDS | Predicate.EXPECTED_FIELDS
+        return Plane.EXPECTED_FIELDS
 
     @staticmethod
     def get_optional_fields() -> dict[str, Type]:
-        return Plane.OPTIONAL_FIELDS | Predicate.OPTIONAL_FIELDS
+        return Plane.OPTIONAL_FIELDS
 
     @staticmethod
     def get_field_types():
-        return  Plane.FIELD_TYPES | Predicate.FIELD_TYPES
+        return  Plane.FIELD_TYPES
     
     
 @dataclass(eq = False)
@@ -153,16 +162,19 @@ class Sphere(Predicate):
     POINT       = "point"
     RADIUS      = "radius"
 
-    EXPECTED_FIELDS = { POINT : dict, RADIUS : float }
-    OPTIONAL_FIELDS = { }
+    EXPECTED_FIELDS = { POINT : dict, RADIUS : float } | Predicate.EXPECTED_FIELDS
+    OPTIONAL_FIELDS = { } | Predicate.OPTIONAL_FIELDS
     FIELD_TYPES = { 
-        POINT : Vector,
+        POINT : Vector3,
         RADIUS : float
-    }
+    } | Predicate.FIELD_TYPES
 
     def __init__(self, params):
-        super().__init__(params)
-        self._point : Vector        = self._data[Sphere.POINT]
+        super().__init__(params | {
+            Predicate.FAMILY : Predicate.Family.GEOMETRIC,
+            Predicate.TYPE : Predicate.PredicateType.SPHERE,
+        })
+        self._point : Vector3        = self._data[Sphere.POINT]
         self._radius : float        = self._data[Sphere.RADIUS]
 
     @property
@@ -171,7 +183,7 @@ class Sphere(Predicate):
         return self._point
 
     @point.setter
-    def point(self, value : Vector):
+    def point(self, value : Vector3):
         self._point = value
         self.set_field_value(Sphere.POINT, value)
 
@@ -187,15 +199,15 @@ class Sphere(Predicate):
 
     @staticmethod
     def get_required_fields() -> dict[str, Type]:
-        return Sphere.EXPECTED_FIELDS | Predicate.EXPECTED_FIELDS
+        return Sphere.EXPECTED_FIELDS
 
     @staticmethod
     def get_optional_fields() -> dict[str, Type]:
-        return Sphere.OPTIONAL_FIELDS | Predicate.OPTIONAL_FIELDS
+        return Sphere.OPTIONAL_FIELDS
 
     @staticmethod
     def get_field_types():
-        return  Sphere.FIELD_TYPES | Predicate.FIELD_TYPES
+        return  Sphere.FIELD_TYPES
     
 @dataclass(eq = False)
 class Box(Predicate):
@@ -204,17 +216,20 @@ class Box(Predicate):
     MIN_EXTENT  = "min_extent"
     MAX_EXTENT  = "max_extent"
 
-    EXPECTED_FIELDS = { MIN_EXTENT : dict, MAX_EXTENT : dict }
-    OPTIONAL_FIELDS = { }
+    EXPECTED_FIELDS = { MIN_EXTENT : dict, MAX_EXTENT : dict } | Predicate.EXPECTED_FIELDS
+    OPTIONAL_FIELDS = { } | Predicate.OPTIONAL_FIELDS
     FIELD_TYPES = { 
-        MIN_EXTENT : Vector,
-        MAX_EXTENT: Vector,
-    }
+        MIN_EXTENT : Vector3,
+        MAX_EXTENT: Vector3,
+    } | Predicate.FIELD_TYPES
 
     def __init__(self, params):
-        super().__init__(params)
-        self._min_extent : Vector   = self._data[Box.MIN_EXTENT]
-        self._max_extent : Vector   = self._data[Box.MAX_EXTENT]
+        super().__init__(params | {
+            Predicate.FAMILY : Predicate.Family.GEOMETRIC,
+            Predicate.TYPE : Predicate.PredicateType.BOX,
+        })
+        self._min_extent : Vector3   = self._data[Box.MIN_EXTENT]
+        self._max_extent : Vector3   = self._data[Box.MAX_EXTENT]
 
     @property
     def min_extent(self):
@@ -222,7 +237,7 @@ class Box(Predicate):
         return self._min_extent
 
     @min_extent.setter
-    def point(self, value : Vector):
+    def point(self, value : Vector3):
         self._min_extent = value
         self.set_field_value(Box.MIN_EXTENT, value)
 
@@ -232,18 +247,18 @@ class Box(Predicate):
         return self._max_extent
 
     @max_extent.setter
-    def max_extent(self, value : Vector):
+    def max_extent(self, value : Vector3):
         self._max_extent = value
         self.set_field_value(Box.MAX_EXTENT, value)
 
     @staticmethod
     def get_required_fields() -> dict[str, Type]:
-        return Box.EXPECTED_FIELDS | Predicate.EXPECTED_FIELDS
+        return Box.EXPECTED_FIELDS
 
     @staticmethod
     def get_optional_fields() -> dict[str, Type]:
-        return Box.OPTIONAL_FIELDS | Predicate.OPTIONAL_FIELDS
+        return Box.OPTIONAL_FIELDS
 
     @staticmethod
     def get_field_types():
-        return  Box.FIELD_TYPES | Predicate.FIELD_TYPES
+        return  Box.FIELD_TYPES
