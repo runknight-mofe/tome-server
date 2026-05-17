@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import Type
 from uuid import UUID
 
 from com.runknight.model.base_model import BaseDataModel
@@ -176,3 +177,15 @@ class Predicate(BaseDataModel):
 
     def __repr__(self) -> str:
         return f'{self.name},{self.id}'
+    
+    @staticmethod
+    def get_required_fields() -> dict[str, Type]:
+        return Predicate.EXPECTED_FIELDS
+
+    @staticmethod
+    def get_optional_fields() -> dict[str, Type]:
+        return Predicate.OPTIONAL_FIELDS
+
+    @staticmethod
+    def get_field_types():
+        return Predicate.FIELD_TYPES

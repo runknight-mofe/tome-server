@@ -47,6 +47,10 @@ class BaseRepository(Generic[T]):
         self.initialized = False
         """Initialization flag for data dict; data dict is lazy loaded"""
 
+    def get_model(self, data: dict[str, Any] | None = None):
+        """Retrieve the underlying data model; provides a means of overriding type for serializing and deserializing operations"""
+        return self.__model__
+
     def initialize(self) -> bool:
         """Prime the repository
 
@@ -83,7 +87,7 @@ class BaseRepository(Generic[T]):
             )
             if results:
                 for result in results:
-                    item = self.__model__.from_dict(result)
+                    item = self.get_model(dict(result)).from_dict(result)
                     self.all_items.add(item)
                     for key in self.keys:
                         self.indices[key][item.get_field_value(key)] = item
@@ -130,6 +134,10 @@ class BaseRepository(Generic[T]):
 
         return self.indices[field][arg] if arg in self.indices[field] else None
 
+    def get_all(self):
+        """Retrieve all managed objects keyed by primary key"""
+        return self.indices[self.keys[0]]
+        
     def add(self, arg: T):
         """Add managed object
 
@@ -186,7 +194,7 @@ class BaseRepository(Generic[T]):
                 # Iterate over each added object
                 for result in results:
                     # Add it to the local repo and return dict
-                    added: T = self.__model__.from_dict(result)
+                    added: T = self.get_model(dict(result)).from_dict(result)
                     self.all_items.add(added)
                     added_items.append(added)
                     for key in self.keys:
@@ -238,7 +246,7 @@ class BaseRepository(Generic[T]):
             if results and self.connector.commit():
                 # Iterate over each added word, updating local repo entries
                 for result in results:
-                    obj: T = self.__model__.from_dict(result)
+                    obj: T = self.get_model(dict(result)).from_dict(result)
                     self.all_items.discard(obj)
                     self.all_items.add(obj)
                     updated.append(obj)
@@ -308,7 +316,7 @@ class BaseRepository(Generic[T]):
                 # Iterate over removed objects
                 for result in results:
                     # Pop each from local repo and add to return dict
-                    obj: T = self.__model__.from_dict(result)
+                    obj: T = self.get_model(dict(result)).from_dict(result)
                     self.all_items.remove(obj)
                     removed.append(obj)
                     for key in self.keys:
