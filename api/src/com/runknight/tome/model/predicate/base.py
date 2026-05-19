@@ -177,7 +177,7 @@ class Predicate(BaseDataModel):
 
     def __repr__(self) -> str:
         return f'{self.name},{self.id}'
-    
+
     @staticmethod
     def get_required_fields() -> dict[str, Type]:
         return Predicate.EXPECTED_FIELDS
@@ -189,3 +189,4 @@ class Predicate(BaseDataModel):
     @staticmethod
     def get_field_types():
         return Predicate.FIELD_TYPES
+    

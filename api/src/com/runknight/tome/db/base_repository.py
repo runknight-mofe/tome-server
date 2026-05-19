@@ -1,4 +1,5 @@
 import logging
+import threading
 from typing import Any, Generic,  TypeVar
 
 from com.runknight.model.base_model import BaseDataModel
@@ -44,6 +45,8 @@ class BaseRepository(Generic[T]):
         self.indices: dict[str, dict[Any, T]] = { key : {} for key in keys }
         """Mapping of all managed data objects"""
 
+        self._lock = threading.Lock()
+
         self.initialized = False
         """Initialization flag for data dict; data dict is lazy loaded"""
 
@@ -80,21 +83,30 @@ class BaseRepository(Generic[T]):
             bool: True if data is successfully retrieved and loaded to 
             local repo, false otherwise.
         """
-        try:
-            results = self.connector.execute(
-                sql = f"SELECT {self.sql[self.GET]}()",
-                fetchMany=True
-            )
-            if results:
-                for result in results:
-                    item = self.get_model(dict(result)).from_dict(result)
-                    self.all_items.add(item)
-                    for key in self.keys:
-                        self.indices[key][item.get_field_value(key)] = item
-            return True
-        except Exception as e:
-            self.logger.error(f"{type(self)}.reload_from_db failed: {e}")
-            return False
+        reloaded = False
+
+        with self._lock:
+    
+            self.all_items.clear()
+            for key in self.keys:
+                self.indices[key].clear()
+
+            try:
+                results = self.connector.execute(
+                    sql = f"SELECT {self.sql[self.GET]}()",
+                    fetchMany=True
+                )
+                if results:
+                    for result in results:
+                        item = self.get_model(dict(result)).from_dict(result)
+                        self.all_items.add(item)
+                        for key in self.keys:
+                            self.indices[key][item.get_field_value(key)] = item
+                reloaded = True
+            except Exception as e:
+                self.logger.error(f"{type(self)}.reload_from_db failed: {e}")
+
+        return reloaded
 
     def delete_all(self) -> bool:
         """Remove all managed data
@@ -107,12 +119,22 @@ class BaseRepository(Generic[T]):
         if not (self.initialized or self.initialize()):
             raise RuntimeError(f'Failed {type(self)}.delete_all; repo not initialized; check underlying DB connection')
 
+        deleted_all = False
+
         try:
-            self.remove_many(self.all_items)
-            return True
+            num_to_remove = len(self.all_items)
+            removed = self.remove_many(self.all_items)
+            assert removed, f"{type(self)}.delete_all - Failed to delete ANY of the {num_to_remove} entries"
+            assert len(removed) == num_to_remove, f"Failed to delete {num_to_remove - len(removed)} of {num_to_remove} items"
+
+            self.all_items.clear()
+            for key in self.keys:
+                self.indices[key].clear()
+
+            deleted_all = True
         except Exception as e:
             self.logger.error(f"{type(self)}.delete_all failed: {e}")
-            return False     
+        return deleted_all
 
     def get(self, arg: Any, field: str | None = None):
         """Retrieve managed object
@@ -129,14 +151,21 @@ class BaseRepository(Generic[T]):
         if not (self.initialized or self.initialize()):
             raise RuntimeError(f'Failed {type(self)}.get; repo not initialized; check underlying DB connection')
 
-        if not field:
-            field = self.keys[0]
-
-        return self.indices[field][arg] if arg in self.indices[field] else None
+        retval = None
+        with self._lock:
+            if not field:
+                field = self.keys[0]
+            retval = self.indices[field][arg] if arg in self.indices[field] else None
+        return retval
 
     def get_all(self):
         """Retrieve all managed objects keyed by primary key"""
-        return self.indices[self.keys[0]]
+        items: set[T] = set()
+
+        with self._lock:
+            items.update(self.all_items)
+
+        return items
         
     def add(self, arg: T):
         """Add managed object
@@ -187,18 +216,20 @@ class BaseRepository(Generic[T]):
             placeholder = ', '.join(['%s'] * len(serialized))
             sql = f"SELECT {self.sql[self.ADD]}({placeholder}::JSONB)"
             self.logger.debug(f"{type(self)}::add func SQL: {sql}")
-            results = self.connector.execute(sql, serialized, fetchMany = True)
+            
+            with self._lock:
+                results = self.connector.execute(sql, serialized, fetchMany = True)
 
-            # If objects are successfully added to DB
-            if results and self.connector.commit():
-                # Iterate over each added object
-                for result in results:
-                    # Add it to the local repo and return dict
-                    added: T = self.get_model(dict(result)).from_dict(result)
-                    self.all_items.add(added)
-                    added_items.append(added)
-                    for key in self.keys:
-                        self.indices[key][added.get_field_value(key)] = added
+                # If objects are successfully added to DB
+                if results and self.connector.commit():
+                    # Iterate over each added object
+                    for result in results:
+                        # Add it to the local repo and return dict
+                        added: T = self.get_model(dict(result)).from_dict(result)
+                        self.all_items.add(added)
+                        added_items.append(added)
+                        for key in self.keys:
+                            self.indices[key][added.get_field_value(key)] = added
 
         return added_items
 
@@ -240,20 +271,29 @@ class BaseRepository(Generic[T]):
 
             placeholder = ', '.join(['%s'] * len(serialized))
             sql = f"SELECT {self.sql[self.UPDATE]}({placeholder}::JSONB)"
-            results = self.connector.execute(sql, serialized, fetchMany = True)
+            
+            with self._lock:
+                results = self.connector.execute(sql, serialized, fetchMany = True)
 
-            # If users are successfully updated in DB
-            if results and self.connector.commit():
-                # Iterate over each added word, updating local repo entries
-                for result in results:
-                    obj: T = self.get_model(dict(result)).from_dict(result)
-                    self.all_items.discard(obj)
-                    self.all_items.add(obj)
-                    updated.append(obj)
-                    for key in self.keys:
-                        self.indices[key][obj.get_field_value(key)] = obj
+                # If users are successfully updated in DB
+                if results and self.connector.commit():
+                    # Iterate over each added word, updating local repo entries
+                    for result in results:
+                        obj: T = self.get_model(dict(result)).from_dict(result)
+                        self.all_items.discard(obj)
+                        self.all_items.add(obj)
+                        updated.append(obj)
+                        for key in self.keys:
+                            self.indices[key][obj.get_field_value(key)] = obj
 
         return updated
+
+    def remove_by_id(self, id):
+        """Remove a managed object with provided unique identifier"""
+        removed = None
+        if id in self.indices[self.keys[0]]:
+            removed = self.remove(self.indices[self.keys[0]][id])
+        return removed
 
     def remove(self, arg):
         if not (self.initialized or self.initialize()):
@@ -261,6 +301,21 @@ class BaseRepository(Generic[T]):
 
         removed = self.remove_many({arg})
         return removed[0] if removed else None
+
+    def remove_many_by(self, field, args):
+        """Remove a set of managed objects
+        
+        Remove a set of managed objects with specified values for the given key field
+        """
+        if not field in self.keys:
+            raise TypeError(f"Data class {self.__model__} does not have a key field {field}")
+        to_remove = set()
+        if isinstance(args, list) or isinstance(args, set):
+            {to_remove.add(self.indices[field][arg]) for arg in args}
+        else:
+            to_remove.add(self.indices[field][args])
+
+        return self.remove_many(to_remove)
 
     def remove_many(self, objs: set[T]):
         """Remove multiple managed objects
@@ -304,26 +359,28 @@ class BaseRepository(Generic[T]):
             placeholder = ', '.join(['%s'] * len(to_remove_serialized))
             sql = f"SELECT {self.sql[self.REMOVE]}({placeholder}::JSONB)"
             self.logger.debug(f"{type(self)}::remove func SQL: {sql}")
-            results = self.connector.execute(
-                sql,
-                to_remove_serialized,
-                fetchMany = True
-            )
 
-            # If transaction completed successfully
-            if results and self.connector.commit():
+            with self._lock:
+                results = self.connector.execute(
+                    sql,
+                    to_remove_serialized,
+                    fetchMany = True
+                )
 
-                # Iterate over removed objects
-                for result in results:
-                    # Pop each from local repo and add to return dict
-                    obj: T = self.get_model(dict(result)).from_dict(result)
-                    self.all_items.remove(obj)
-                    removed.append(obj)
-                    for key in self.keys:
-                        self.indices[key].pop(obj.get_field_value(key))
+                # If transaction completed successfully
+                if results and self.connector.commit():
 
-                    # TODO:  Add event emits for DB changes
-                    # Notify listeners of the removed user
-                    # event_bus.emit(EventType.OBJ_DELETED, obj)
+                    # Iterate over removed objects
+                    for result in results:
+                        # Pop each from local repo and add to return dict
+                        obj: T = self.get_model(dict(result)).from_dict(result)
+                        self.all_items.remove(obj)
+                        removed.append(obj)
+                        for key in self.keys:
+                            self.indices[key].pop(obj.get_field_value(key))
+
+                        # TODO:  Add event emits for DB changes
+                        # Notify listeners of the removed user
+                        # event_bus.emit(EventType.OBJ_DELETED, obj)
 
         return removed

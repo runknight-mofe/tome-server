@@ -34,7 +34,7 @@ RETURNS JSONB LANGUAGE SQL STABLE AS $$
                           ELSE NULL END,
         -- Ordinals only; Python NodeMeshRole enum provides name/description
         'mesh_roles', COALESCE(
-            (SELECT jsonb_agg(r ORDER BY r) FILTER (WHERE r IS NOT NULL) FROM unnest(m.mesh_roles) r),
+            (SELECT jsonb_agg(r ORDER BY r) FROM unnest(m.mesh_roles) r),
             '[]'::JSONB
         )
     )
@@ -63,11 +63,11 @@ RETURNS JSONB LANGUAGE SQL STABLE AS $$
         -- is_anchor, is_root, is_admin, mesh_roles, joined_at, last_seen.
         'nodes', COALESCE(
             (SELECT jsonb_agg(
-                    _build_membership(nmm.node_id, nmm.mesh_id)
-                    ORDER BY nmm.joined_at ASC
-                )
-             FROM   node_mesh_memberships nmm
-             WHERE  nmm.mesh_id = m.id),
+                        _build_membership(nmm.node_id, nmm.mesh_id)
+                        ORDER BY nmm.joined_at ASC
+                    )
+             FROM node_mesh_memberships nmm
+             WHERE nmm.mesh_id = m.id),
             '[]'::JSONB),
         'predicates', COALESCE(
             (SELECT jsonb_agg(_build_predicate(nmp.predicate_id) ORDER BY nmp.position)
@@ -81,7 +81,7 @@ $$;
 
 -- ============================================================================
 -- NodeMeshMembershipRepo
--- mesh_roles input is a plain INT array [0, 2, ...] (ordinals from Python enum).
+-- Keys: [NODE_ID, MESH_ID]  (composite identity)
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION get_all_node_mesh_memberships()
@@ -111,9 +111,11 @@ BEGIN
             '{}'::INT[]
         ) INTO v_ordinals;
 
+        -- joined_at is owned by the DB (DEFAULT CURRENT_TIMESTAMP).
+        -- Any value supplied by the caller is discarded.
         INSERT INTO node_mesh_memberships
                (node_id, mesh_id, mesh_roles,
-                is_admin, is_anchor, is_root, joined_at, last_seen)
+                is_admin, is_anchor, is_root, last_seen)
         VALUES (
             (v_row->>'node_id')::UUID,
             (v_row->>'mesh_id')::UUID,
@@ -121,7 +123,6 @@ BEGIN
             COALESCE((v_row->>'is_admin')::BOOLEAN,  FALSE),
             COALESCE((v_row->>'is_anchor')::BOOLEAN, FALSE),
             COALESCE((v_row->>'is_root')::BOOLEAN,   FALSE),
-            (v_row->>'joined_at')::TIMESTAMPTZ,
             CASE WHEN v_row->>'last_seen' IS NOT NULL
                  THEN (v_row->>'last_seen')::TIMESTAMPTZ END
         );
@@ -223,23 +224,21 @@ DECLARE
     v_pos     INT;
 BEGIN
     FOREACH v_row IN ARRAY p_rows LOOP
-        v_mesh_id := (v_row->>'id')::UUID;
-
-        -- status may be a full NodeMeshStatus object or a plain ordinal integer
+        -- id is owned by the DB; any value in the payload is discarded.
         v_status := CASE jsonb_typeof(v_row->'status')
                         WHEN 'object' THEN (v_row->'status'->>'ordinal')::INT
                         WHEN 'number' THEN (v_row->>'status')::INT
                         ELSE 0
                     END;
 
-        INSERT INTO node_meshes (id, name, status, description, api_version)
+        INSERT INTO node_meshes (name, status, description, api_version)
         VALUES (
-            v_mesh_id,
             v_row->>'name',
             v_status,
             v_row->>'description',
             v_row->>'api_version'
-        );
+        )
+        RETURNING id INTO v_mesh_id;
 
         -- nodes[] are NodeMeshMembership dicts matching NodeMesh.FIELD_TYPES.
         -- Each element: {node_id, mesh_id, mesh_roles, is_admin, is_anchor,
@@ -247,9 +246,10 @@ BEGIN
         -- The referenced node_devices row must already exist (NodeDevice is
         -- registered independently via NodeDeviceRepo before joining a mesh).
         FOR v_dev IN SELECT jsonb_array_elements(v_row->'nodes') LOOP
+            -- joined_at is DB-owned; any value in the payload is discarded.
             INSERT INTO node_mesh_memberships
                    (node_id, mesh_id, mesh_roles,
-                    is_admin, is_anchor, is_root, joined_at, last_seen)
+                    is_admin, is_anchor, is_root, last_seen)
             VALUES (
                 (v_dev->>'node_id')::UUID,
                 v_mesh_id,
@@ -266,7 +266,6 @@ BEGIN
                 COALESCE((v_dev->>'is_admin')::BOOLEAN,  FALSE),
                 COALESCE((v_dev->>'is_anchor')::BOOLEAN, FALSE),
                 COALESCE((v_dev->>'is_root')::BOOLEAN,   FALSE),
-                COALESCE((v_dev->>'joined_at')::TIMESTAMPTZ,CURRENT_TIMESTAMP),
                 CASE WHEN v_dev->>'last_seen' IS NOT NULL
                      THEN (v_dev->>'last_seen')::TIMESTAMPTZ END
             )
@@ -281,41 +280,30 @@ BEGIN
         -- predicates[] are Predicate dicts with Metadata fields dissolved in.
         -- id, name, is_active, created_at, modified_at, description,
         -- predicate_type, predicate_family, <geometry keys>
+        -- id, created_at, modified_at are owned by the DB.
         v_pos := 0;
         FOR v_pred IN SELECT jsonb_array_elements(v_row->'predicates') LOOP
-            v_pred_id := gen_random_uuid();
-
             INSERT INTO predicates (
-                id, name, is_active, created_at, modified_at, description,
+                name, is_active, description,
                 predicate_type, predicate_family
             )
             VALUES (
-                v_pred_id,
                 v_pred->>'name',
                 COALESCE((v_pred->>'is_active')::BOOLEAN, TRUE),
-                (v_pred->>'created_at')::TIMESTAMPTZ,
-                (v_pred->>'modified_at')::TIMESTAMPTZ,
                 v_pred->>'description',
                 (v_pred->>'predicate_type')::smallint,
                 (v_pred->>'predicate_family')::smallint
             )
-            ON CONFLICT (id) DO UPDATE
-                SET name             = EXCLUDED.name,
-                    is_active        = EXCLUDED.is_active,
-                    modified_at      = EXCLUDED.modified_at,
-                    description      = EXCLUDED.description;
+            RETURNING id INTO v_pred_id;
 
             -- Route to family child table
             IF (v_pred->>'predicate_family')::smallint = 0 THEN
                 INSERT INTO predicate_geometric (predicate_id, geometry)
-                VALUES (v_pred_id, _extract_geometry(v_pred))
-                ON CONFLICT (predicate_id) DO UPDATE
-                    SET geometry = EXCLUDED.geometry;
+                VALUES (v_pred_id, _extract_geometry(v_pred));
             END IF;
 
             INSERT INTO node_mesh_predicates (mesh_id, predicate_id, position)
-            VALUES (v_mesh_id, v_pred_id, v_pos)
-            ON CONFLICT DO NOTHING;
+            VALUES (v_mesh_id, v_pred_id, v_pos);
 
             v_pos := v_pos + 1;
         END LOOP;

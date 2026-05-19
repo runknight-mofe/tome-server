@@ -1,7 +1,7 @@
 -- ============================================================================
--- Private helpers
--- ============================================================================
-
+-- Aether / Tome Server — node_funcs.sql
+-- Functions for DeviceTypeRepo and NodeDeviceRepo.
+--
 -- Build a fully-populated DeviceType JSONB from an ordinal.
 -- Includes all columns: name, description, manufacturer, ranging_method,
 -- supports_aoa, max_update_rate_hz, typical_accuracy_m.
@@ -132,24 +132,23 @@ $$;
 
 CREATE OR REPLACE FUNCTION add_many_node_devices(VARIADIC p_rows JSONB[])
 RETURNS SETOF JSONB LANGUAGE plpgsql AS $$
-DECLARE v_row JSONB;
+DECLARE
+    v_row   JSONB;
+    v_nd_id UUID;
 BEGIN
     FOREACH v_row IN ARRAY p_rows LOOP
-        INSERT INTO node_devices (id, name, description, type, is_emulated)
+        -- id is owned by the DB; any value in the payload is discarded.
+        -- 'type' in the input is a DeviceType dict; we store only the ordinal.
+        INSERT INTO node_devices (name, description, type, is_emulated)
         VALUES (
-            (v_row->>'id')::UUID,
              v_row->>'name',
              v_row->>'description',
             (v_row->'type'->>'ordinal')::INT,
             (v_row->>'is_emulated')::BOOLEAN
         )
-        ON CONFLICT (id) DO UPDATE
-            SET name        = EXCLUDED.name,
-                description = EXCLUDED.description,
-                type        = EXCLUDED.type,
-                is_emulated = EXCLUDED.is_emulated;
+        RETURNING id INTO v_nd_id;
 
-        RETURN NEXT _build_node_device((v_row->>'id')::UUID);
+        RETURN NEXT _build_node_device(v_nd_id);
     END LOOP;
 END;
 $$;

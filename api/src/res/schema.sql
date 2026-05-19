@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS device_types (
 --              type INT→FK, is_emulated BOOLEAN)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS node_devices (
-    id          UUID         PRIMARY KEY,
+    id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     name        VARCHAR(255) NOT NULL,
     description TEXT,
     type        INT          NOT NULL REFERENCES device_types(ordinal),
@@ -113,7 +113,8 @@ CREATE TABLE IF NOT EXISTS node_mesh_memberships (
     is_admin   BOOLEAN                  NOT NULL DEFAULT FALSE,
     is_anchor  BOOLEAN                  NOT NULL DEFAULT FALSE,
     is_root    BOOLEAN                  NOT NULL DEFAULT FALSE,
-    joined_at  TIMESTAMP WITH TIME ZONE NOT NULL,
+    -- joined_at is set by the DB at insert time; not supplied by the application.
+    joined_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_seen  TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (node_id, mesh_id)
 );
@@ -150,12 +151,15 @@ CREATE INDEX IF NOT EXISTS idx_nmm_is_admin ON node_mesh_memberships(is_admin);
 --     ADD COLUMN on every subtype addition.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS predicates (
-    id               UUID                     PRIMARY KEY,
+    id               UUID                     PRIMARY KEY DEFAULT gen_random_uuid(),
     -- Metadata fields (Value Object dissolved into owning entity)
     name             VARCHAR(255)             NOT NULL,
     is_active        BOOLEAN                  NOT NULL DEFAULT TRUE,
-    created_at       TIMESTAMP WITH TIME ZONE NOT NULL,
-    modified_at      TIMESTAMP WITH TIME ZONE NOT NULL,
+    -- created_at / modified_at are set and maintained exclusively by the DB.
+    -- The application layer must not supply or override these values; the
+    -- trg_set_modified_at trigger ensures modified_at is always current.
+    created_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at      TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     description      TEXT,
     -- Predicate discriminators
     predicate_type   smallint                 NOT NULL,
@@ -167,6 +171,25 @@ CREATE INDEX IF NOT EXISTS idx_predicates_name        ON predicates(name);
 CREATE INDEX IF NOT EXISTS idx_predicates_is_active   ON predicates(is_active);
 CREATE INDEX IF NOT EXISTS idx_predicates_type        ON predicates(predicate_type);
 CREATE INDEX IF NOT EXISTS idx_predicates_family      ON predicates(predicate_family);
+
+-- ---------------------------------------------------------------------------
+-- Trigger: set modified_at = CURRENT_TIMESTAMP on every UPDATE.
+-- The application layer is not permitted to set this value; it is owned
+-- entirely by the database.  The trigger fires BEFORE UPDATE so the
+-- written row always carries the authoritative modification timestamp.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION trg_set_modified_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.modified_at := CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE TRIGGER trg_predicates_set_modified_at
+BEFORE UPDATE ON predicates
+FOR EACH ROW
+EXECUTE FUNCTION trg_set_modified_at();
 
 -- ---------------------------------------------------------------------------
 -- predicate_geometric  (family child — Predicate.Family.GEOMETRIC = 0)
@@ -211,7 +234,7 @@ CREATE TABLE IF NOT EXISTS predicate_geometric (
 --            description TEXT, api_version VARCHAR)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS node_meshes (
-    id          UUID         PRIMARY KEY,
+    id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     name        VARCHAR(255) NOT NULL UNIQUE,
     status      INT          NOT NULL DEFAULT 0,
     description TEXT,
@@ -252,7 +275,10 @@ CREATE TABLE IF NOT EXISTS schema_versions (
 );
 
 INSERT INTO schema_versions (version, description)
-VALUES ('7.0.0',
-        'Metadata dissolved into predicates; predicate_type/family=smallint ordinals; '
-        'node_id FK cascade; NodeMesh.nodes=List[NodeMeshMembership]')
+VALUES ('8.0.0',
+        'v8: DB owns UUID generation and all timestamps; '
+        'gen_random_uuid() defaults on id columns; '
+        'created_at/modified_at defaults on predicates; '
+        'trg_set_modified_at trigger on predicates; '
+        'joined_at default on node_mesh_memberships')
 ON CONFLICT DO NOTHING;

@@ -88,10 +88,10 @@ class Node(BaseDataModel):
         return hash(self.id)
 
     def __str__(self):
-        return f'{self.id}:{self.type}'
+        return f'{self.name}'
 
     def __repr__(self) -> str:
-        return f'{self.id}:{self.type}'
+        return f'{self.id}:{self.name}'
 
     @staticmethod
     def get_required_fields() -> dict[str, Type]:

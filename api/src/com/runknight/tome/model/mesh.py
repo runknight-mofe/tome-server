@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from packaging.version import Version
-from typing import Type
+from typing import Generic, Type, TypeVar, Union
 from uuid import UUID
 
 from com.runknight.model.base_model import BaseDataModel
@@ -155,7 +155,6 @@ class NodeMeshMembership(BaseDataModel):
     def get_field_types():
         return  NodeMeshMembership.FIELD_TYPES
 
-
 @dataclass(eq = False)
 class NodeMesh(BaseDataModel):
 
@@ -184,7 +183,7 @@ class NodeMesh(BaseDataModel):
         ID : UUID,
         NAME: str,
         NODES : list[NodeMeshMembership],
-        PREDICATES : list[Predicate],
+        PREDICATES : list,
         STATUS : Status,
         DESCRIPTION: str,
         API_VERSION: Version
@@ -195,7 +194,7 @@ class NodeMesh(BaseDataModel):
         self._id : UUID                         = self._data[NodeMesh.ID]
         self._name : str                        = self._data[NodeMesh.NAME]
         self._nodes : list[NodeMeshMembership]  = self._data[NodeMesh.NODES]
-        self._predicates : list[Predicate]      = self._data[NodeMesh.PREDICATES]
+        self._predicates : list                 = self._data[NodeMesh.PREDICATES]
         self._status : NodeMesh.Status          = self._data[NodeMesh.STATUS]
         self._description : str                 = self._data[NodeMesh.DESCRIPTION]
         self._api_version : Version             = self._data[NodeMesh.API_VERSION]
