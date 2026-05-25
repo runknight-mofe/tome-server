@@ -18,6 +18,14 @@ def retrieve_device(id):
     """Retrieve a managed device handle by its id"""
     return dm.get(id)
 
+def enable_device(id):
+    """Enables an existing device managed in the Tome repo"""
+    return dm.enable_device(id)
+
+def disable_device(id):
+    """Disable n existing device managed in the Tome repo"""
+    return dm.disable_device(id)
+
 def register_device(device):
     """Handles registering a unique device to tome"""
     return dm.add(device)

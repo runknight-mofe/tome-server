@@ -188,6 +188,38 @@ class DeviceRepo(BaseRepository[Device]):
     # -----------------------------------------------------------------------
     # Enabled / Disabled
     # -----------------------------------------------------------------------
+    def enable_device(self, id):
+        """Raises active flag on a managed device
+        
+        Useful for re-enabling previously disabled devices.
+        
+        Returns:
+            True if device was found and enabled, False otherwise
+        """
+        if not (self.initialized or self.initialize()):
+            raise RuntimeError(f'Failed {type(self)}.enable_device; repo not initialized')
+        existing = self.get(id)
+        if existing:
+            existing.is_active = True
+            return super().update(existing) is not None
+        return False
+
+    def disable_device(self, id):
+        """Lowers active flag on a managed device
+        
+        Useful for preventing devices from operating while retaining them in DB.
+        
+        Returns:
+            True if device was found and disabled, False otherwise
+        """
+        if not (self.initialized or self.initialize()):
+            raise RuntimeError(f'Failed {type(self)}.disable_device; repo not initialized')
+        existing = self.get(id)
+        if existing:
+            existing.is_active = False
+            return super().update(existing) is not None
+        return False
+
     def get_active_devices(self) -> set[Device]:
         """
         Get all active devices.

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Type
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from com.runknight.model.base_model import BaseDataModel
 
@@ -224,7 +224,11 @@ class Device(BaseDataModel):
         CREATED_AT          : datetime,
     }
 
-    DEFAULT_VALUES = { IS_ACTIVE : True }
+    DEFAULT_VALUES = { 
+        ID                  : uuid4(),
+        IS_ACTIVE           : True,
+        CREATED_AT          : datetime.now()
+    }
 
     def __init__(self, params):
         super().__init__(params)

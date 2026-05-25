@@ -21,7 +21,7 @@ class BaseSchema(Schema, Generic[T]):
         return self.__model__(data) # type: ignore
 
 
-class DeviceSchema(BaseSchema[Device]):
+class CreateDeviceRequestSchema(BaseSchema[Device]):
     """Schema for a device
     
     Validates data object for a device
@@ -32,7 +32,7 @@ class DeviceSchema(BaseSchema[Device]):
 
     id = fields.UUID(
         data_key = Device.ID,
-        required = True,
+        required = False,
     )
     """Device unique identifier"""
 
@@ -51,16 +51,28 @@ class DeviceSchema(BaseSchema[Device]):
     """Human readable description"""
 
     type = fields.Int(
-        data_key = Device.DEVICE_TYPE,
+        data_key = Device.TYPE,
         required = True,
         validate = validate.Range(min=0, max=900, min_inclusive=True,max_inclusive=True)
     )
     """physical device type"""
 
-    type = fields.Bool(
+    is_active = fields.Bool(
+        data_key = Device.IS_ACTIVE,
+        required = False
+    )
+    """Is device active?"""
+
+    is_emulated = fields.Bool(
         data_key = Device.IS_EMULATED,
         required = True
     )
     """Is device not physical?"""
 
-device_schema : DeviceSchema = DeviceSchema()
+    created_at = fields.DateTime(
+        data_key = Device.CREATED_AT,
+        required = False
+    )
+    """Is device not physical?"""
+
+device_create_req_schema : CreateDeviceRequestSchema = CreateDeviceRequestSchema()

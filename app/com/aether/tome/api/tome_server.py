@@ -43,15 +43,15 @@ def create_app():
 
     limits = []
     if config.api_access_limits_per_hour:
-        limits += f"{config.api_access_limits_per_second} per second"
+        limits.append(f"{config.api_access_limits_per_second} per 1 second")
     if config.api_access_limits_per_hour:
-        limits += f"{config.api_access_limits_per_minute} per minute"
+        limits.append(f"{config.api_access_limits_per_minute} per 1 minute")
     if config.api_access_limits_per_hour:
-        limits += f"{config.api_access_limits_per_hour} per hour"
+        limits.append(f"{config.api_access_limits_per_hour} per 1 hour")
     if config.api_access_limits_per_day:
-        limits += f"{config.api_access_limits_per_day} per day"
+        limits.append(f"{config.api_access_limits_per_day} per 1 day")
     if config.api_access_limits_per_week:
-        limits += f"{config.api_access_limits_per_week} per week",
+        limits.append(f"{config.api_access_limits_per_week} per 7 day")
 
     # Initialize extensions
     jwt = JWTManager()

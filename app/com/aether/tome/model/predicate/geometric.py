@@ -39,9 +39,9 @@ class Point(Predicate):
     def get_optional_fields() -> dict[str, Type]:
         return Point.OPTIONAL_FIELDS 
 
-    @staticmethod
-    def get_field_types():
-        return  Point.FIELD_TYPES
+    @classmethod
+    def get_field_types(cls):
+        return  Predicate.FIELD_TYPES | Point.FIELD_TYPES
 
 
 @dataclass(eq = False)
@@ -95,10 +95,10 @@ class LineSegment(Predicate):
     def get_optional_fields() -> dict[str, Type]:
         return LineSegment.OPTIONAL_FIELDS
 
-    @staticmethod
-    def get_field_types():
-        return  LineSegment.FIELD_TYPES
-    
+    @classmethod
+    def get_field_types(cls):
+        return  Predicate.FIELD_TYPES | LineSegment.FIELD_TYPES
+
 @dataclass(eq = False)
 class Plane(Predicate):
     """Object model for a Plane geometric predicate."""
@@ -150,9 +150,9 @@ class Plane(Predicate):
     def get_optional_fields() -> dict[str, Type]:
         return Plane.OPTIONAL_FIELDS
 
-    @staticmethod
-    def get_field_types():
-        return  Plane.FIELD_TYPES
+    @classmethod
+    def get_field_types(cls):
+        return  Predicate.FIELD_TYPES | Plane.FIELD_TYPES
     
     
 @dataclass(eq = False)
@@ -205,9 +205,9 @@ class Sphere(Predicate):
     def get_optional_fields() -> dict[str, Type]:
         return Sphere.OPTIONAL_FIELDS
 
-    @staticmethod
-    def get_field_types():
-        return  Sphere.FIELD_TYPES
+    @classmethod
+    def get_field_types(cls):
+        return Predicate.FIELD_TYPES | Sphere.FIELD_TYPES
     
 @dataclass(eq = False)
 class Box(Predicate):
@@ -259,6 +259,6 @@ class Box(Predicate):
     def get_optional_fields() -> dict[str, Type]:
         return Box.OPTIONAL_FIELDS
 
-    @staticmethod
-    def get_field_types():
-        return  Box.FIELD_TYPES
+    @classmethod
+    def get_field_types(cls):
+        return Predicate.FIELD_TYPES | Box.FIELD_TYPES

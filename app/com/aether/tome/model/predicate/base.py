@@ -3,6 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Type
 from uuid import UUID
+from xml.etree.ElementTree import QName
 
 from com.runknight.model.base_model import BaseDataModel
 
@@ -11,6 +12,7 @@ class Predicate(BaseDataModel):
     """Tagging class defining the base predicate type"""
 
     ID          = "id"
+    MESH_ID     = "mesh_id"
     NAME        = "name"
     IS_ACTIVE   = "is_active"
     CREATED_AT  = "created_at"
@@ -54,40 +56,48 @@ class Predicate(BaseDataModel):
         #----------------------------------------------------------------------
         # TBD
 
-    DEFAULT_DESCRIPTION = ""
-
     EXPECTED_FIELDS = {
-        ID : str,
-        NAME : str,
-        IS_ACTIVE: bool,
-        CREATED_AT : str,
-        MODIFIED_AT : str,
-        FAMILY : int,
-        TYPE : int 
+        ID                  : str,
+        MESH_ID             : str,
+        NAME                : str,
+        CREATED_AT          : str,
+        MODIFIED_AT         : str,
+        FAMILY              : int,
+        TYPE                : int 
     }
-    OPTIONAL_FIELDS = { DESCRIPTION: str }
+    OPTIONAL_FIELDS = { 
+        DESCRIPTION         : str,
+        IS_ACTIVE           : bool, 
+    }
 
     FIELD_TYPES = {
-        ID : UUID,
-        CREATED_AT : datetime,
-        DESCRIPTION: str,
-        IS_ACTIVE : bool,
-        MODIFIED_AT : datetime,
-        NAME : str,
-        FAMILY : Family,
-        TYPE: PredicateType,
+        ID                  : UUID,
+        MESH_ID             : UUID,
+        CREATED_AT          : datetime,
+        NAME                : str,
+        DESCRIPTION         : str,
+        IS_ACTIVE           : bool,
+        MODIFIED_AT         : datetime,
+        FAMILY              : Family,
+        TYPE                : PredicateType,
+    }
+    
+    DEFAULT_VALUES = { 
+        DESCRIPTION : "",
+        IS_ACTIVE :True,
     }
 
     def __init__(self, params):
         super().__init__(params)
-        self._id : UUID                         = self._data[Predicate.ID]
-        self._name : str                        = self._data[Predicate.NAME]
-        self._description : str                 = self._data[Predicate.DESCRIPTION] if Predicate.DESCRIPTION in self._data else Predicate.DEFAULT_DESCRIPTION
-        self._is_active : bool                  = self._data[Predicate.IS_ACTIVE]
-        self._created_at : datetime             = self._data[Predicate.CREATED_AT]
-        self._modified_at : datetime            = self._data[Predicate.MODIFIED_AT]
-        self._family : Predicate.Family         = self._data[Predicate.FAMILY]
-        self._type : Predicate.PredicateType    = self._data[Predicate.TYPE]
+        self._id            : UUID                      = self._data[Predicate.ID]
+        self._mesh_id       : UUID                      = self._data[Predicate.MESH_ID]
+        self._name          : str                       = self._data[Predicate.NAME]
+        self._description   : str                       = self._data[Predicate.DESCRIPTION]
+        self._is_active     : bool                      = self._data[Predicate.IS_ACTIVE]
+        self._created_at    : datetime                  = self._data[Predicate.CREATED_AT]
+        self._modified_at   : datetime                  = self._data[Predicate.MODIFIED_AT]
+        self._family        : Predicate.Family          = self._data[Predicate.FAMILY]
+        self._type          : Predicate.PredicateType   = self._data[Predicate.TYPE]
     
     @property
     def id(self):
@@ -98,6 +108,16 @@ class Predicate(BaseDataModel):
     def id(self, value : UUID):
         self._id = value
         self.set_field_value(Predicate.ID, value)
+
+    @property
+    def mesh_id(self):
+        """Owning mesh ID"""
+        return self._mesh_id
+
+    @mesh_id.setter
+    def mesh_id(self, value : UUID):
+        self._mesh_id = value
+        self.set_field_value(Predicate.MESH_ID, value)
     
     @property
     def name(self):
@@ -186,7 +206,10 @@ class Predicate(BaseDataModel):
     def get_optional_fields() -> dict[str, Type]:
         return Predicate.OPTIONAL_FIELDS
 
-    @staticmethod
-    def get_field_types():
+    @classmethod
+    def get_field_types(cls):
         return Predicate.FIELD_TYPES
     
+    @staticmethod
+    def get_default_values():
+        return Predicate.DEFAULT_VALUES
