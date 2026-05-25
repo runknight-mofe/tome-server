@@ -1,11 +1,10 @@
 from dataclasses import dataclass
-from logging import root
 from typing import Type
 from uuid import UUID
 
 from com.runknight.model.base_model import BaseDataModel
 
-from com.aether.tome.model.mesh import NodeMeshMembership
+from com.aether.tome.model.mesh import NodeMeshMembership, NodeMeshPredicateMembership
 
 @dataclass(eq=False)
 class NodeMeshMembershipRequest(BaseDataModel):
@@ -108,3 +107,69 @@ class NodeMeshMembershipRequest(BaseDataModel):
     def root(self, value : bool):
         self._root = value
         self.set_field_value(NodeMeshMembershipRequest.ROOT, value)
+
+
+@dataclass(eq=False)
+class NodeMeshPredicateMembershipRequest(BaseDataModel):
+    """Represents the request to associate a predicate with a node mesh"""
+
+    PREDICATE_ID = "predicate_id"
+    MESH_ID      = "mesh_id"
+    POSITION     = "position"
+
+    REQUIRED_FIELDS = { PREDICATE_ID: str, MESH_ID: str }
+    OPTIONAL_FIELDS = { POSITION: int }
+    FIELD_TYPES     = { PREDICATE_ID: UUID, MESH_ID: UUID, POSITION: int }
+    DEFAULT_VALUES  = { POSITION: 0 }
+
+    @staticmethod
+    def get_required_fields() -> dict[str, Type]:
+        return NodeMeshPredicateMembershipRequest.REQUIRED_FIELDS
+
+    @staticmethod
+    def get_optional_fields() -> dict[str, Type]:
+        return NodeMeshPredicateMembershipRequest.OPTIONAL_FIELDS
+
+    @classmethod
+    def get_field_types(cls):
+        return BaseDataModel.get_field_types() | NodeMeshPredicateMembershipRequest.FIELD_TYPES
+
+    @staticmethod
+    def get_default_values():
+        return NodeMeshPredicateMembershipRequest.DEFAULT_VALUES
+
+    def __init__(self, params):
+        super().__init__(params)
+        self._predicate_id : UUID = self._data[NodeMeshPredicateMembershipRequest.PREDICATE_ID]
+        self._mesh_id      : UUID = self._data[NodeMeshPredicateMembershipRequest.MESH_ID]
+        self._position     : int  = self._data[NodeMeshPredicateMembershipRequest.POSITION]
+
+    @property
+    def predicate_id(self):
+        """Unique identifier of the predicate"""
+        return self._predicate_id
+
+    @predicate_id.setter
+    def predicate_id(self, value: UUID):
+        self._predicate_id = value
+        self.set_field_value(NodeMeshPredicateMembershipRequest.PREDICATE_ID, value)
+
+    @property
+    def mesh_id(self):
+        """Unique identifier of the node mesh"""
+        return self._mesh_id
+
+    @mesh_id.setter
+    def mesh_id(self, value: UUID):
+        self._mesh_id = value
+        self.set_field_value(NodeMeshPredicateMembershipRequest.MESH_ID, value)
+
+    @property
+    def position(self):
+        """Ordered position of the predicate within the mesh"""
+        return self._position
+
+    @position.setter
+    def position(self, value: int):
+        self._position = value
+        self.set_field_value(NodeMeshPredicateMembershipRequest.POSITION, value)

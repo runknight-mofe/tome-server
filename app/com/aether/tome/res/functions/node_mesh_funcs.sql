@@ -399,3 +399,97 @@ BEGIN
     END LOOP;
 END;
 $$;
+
+-- ============================================================================
+-- NodeMeshPredicateMembershipRepo
+-- Keys: [PREDICATE_ID, MESH_ID]  (composite identity)
+-- Manages the node_mesh_predicates association table.
+-- Predicates are independent resources; a predicate may belong to many meshes.
+-- ============================================================================
+
+-- Build a NodeMeshPredicateMembership JSONB from the association table.
+CREATE OR REPLACE FUNCTION _build_predicate_membership(p_predicate_id UUID, p_mesh_id UUID)
+RETURNS JSONB LANGUAGE SQL STABLE AS $$
+    SELECT jsonb_build_object(
+        'predicate_id', nmp.predicate_id::TEXT,
+        'mesh_id',      nmp.mesh_id::TEXT,
+        'position',     nmp.position
+    )
+    FROM node_mesh_predicates nmp
+    WHERE nmp.predicate_id = p_predicate_id AND nmp.mesh_id = p_mesh_id;
+$$;
+
+CREATE OR REPLACE FUNCTION get_all_node_mesh_predicate_memberships()
+RETURNS SETOF JSONB LANGUAGE SQL STABLE AS $$
+    SELECT _build_predicate_membership(predicate_id, mesh_id)
+    FROM   node_mesh_predicates
+    ORDER  BY mesh_id, position;
+$$;
+
+CREATE OR REPLACE FUNCTION add_many_node_mesh_predicate_memberships(VARIADIC p_rows JSONB[])
+RETURNS SETOF JSONB LANGUAGE plpgsql AS $$
+DECLARE
+    v_row JSONB;
+BEGIN
+    FOREACH v_row IN ARRAY p_rows LOOP
+        INSERT INTO node_mesh_predicates (mesh_id, predicate_id, position)
+        VALUES (
+            (v_row->>'mesh_id')::UUID,
+            (v_row->>'predicate_id')::UUID,
+            COALESCE((v_row->>'position')::INT, 0)
+        );
+        RETURN NEXT _build_predicate_membership(
+            (v_row->>'predicate_id')::UUID, (v_row->>'mesh_id')::UUID);
+    END LOOP;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION update_many_node_mesh_predicate_memberships(VARIADIC p_rows JSONB[])
+RETURNS SETOF JSONB LANGUAGE plpgsql AS $$
+DECLARE
+    v_row JSONB;
+    v_cnt INT;
+BEGIN
+    FOREACH v_row IN ARRAY p_rows LOOP
+        UPDATE node_mesh_predicates
+        SET    position = COALESCE((v_row->>'position')::INT, position)
+        WHERE  predicate_id = (v_row->>'predicate_id')::UUID
+          AND  mesh_id      = (v_row->>'mesh_id')::UUID;
+
+        GET DIAGNOSTICS v_cnt = ROW_COUNT;
+        IF v_cnt = 0 THEN
+            RAISE SQLSTATE '02000'
+                USING MESSAGE = format('predicate membership (%s,%s) not found',
+                                       v_row->>'predicate_id', v_row->>'mesh_id');
+        END IF;
+        RETURN NEXT _build_predicate_membership(
+            (v_row->>'predicate_id')::UUID, (v_row->>'mesh_id')::UUID);
+    END LOOP;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION remove_many_node_mesh_predicate_memberships(VARIADIC p_rows JSONB[])
+RETURNS SETOF JSONB LANGUAGE plpgsql AS $$
+DECLARE
+    v_row  JSONB;
+    v_snap JSONB;
+    v_cnt  INT;
+BEGIN
+    FOREACH v_row IN ARRAY p_rows LOOP
+        v_snap := _build_predicate_membership(
+            (v_row->>'predicate_id')::UUID, (v_row->>'mesh_id')::UUID);
+
+        DELETE FROM node_mesh_predicates
+        WHERE  predicate_id = (v_row->>'predicate_id')::UUID
+          AND  mesh_id      = (v_row->>'mesh_id')::UUID;
+
+        GET DIAGNOSTICS v_cnt = ROW_COUNT;
+        IF v_cnt = 0 THEN
+            RAISE SQLSTATE '02000'
+                USING MESSAGE = format('predicate membership (%s,%s) not found',
+                                       v_row->>'predicate_id', v_row->>'mesh_id');
+        END IF;
+        RETURN NEXT v_snap;
+    END LOOP;
+END;
+$$;

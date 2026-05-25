@@ -139,11 +139,13 @@ def register_blueprints(app):
     """Register API blueprints"""
     from com.aether.tome.api.routes.mesh import mesh_bp
     from com.aether.tome.api.routes.device import device_bp
+    from com.aether.tome.api.routes.predicate import predicate_bp
     from com.aether.tome.api.routes.user import user_bp
 
-    app.register_blueprint(mesh_bp, url_prefix='/api/v1/mesh')
-    app.register_blueprint(device_bp, url_prefix='/api/v1/device')
-    app.register_blueprint(user_bp, url_prefix='/api/v1/user')
+    app.register_blueprint(mesh_bp,       url_prefix='/api/v1/mesh')
+    app.register_blueprint(device_bp,     url_prefix='/api/v1/device')
+    app.register_blueprint(predicate_bp,  url_prefix='/api/v1/predicate')
+    app.register_blueprint(user_bp,       url_prefix='/api/v1/user')
 
 def resp_ok(data):
     return jsonify(data), OK
