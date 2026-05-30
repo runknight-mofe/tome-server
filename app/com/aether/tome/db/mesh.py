@@ -45,53 +45,50 @@ class NodeMeshMembershipRepo(BaseRepository[NodeMeshMembership]):
         self.sql[self.REMOVE]   = "remove_many_node_mesh_memberships"
  
     # -----------------------------------------------------------------------
-    # Workflow 1: Join a device to a mesh
+    # Workflow 1: Join a device to a mesh (requires an active user session)
     # -----------------------------------------------------------------------
-    def join_mesh(self, device_id: UUID, mesh_id: UUID, 
+    def join_mesh(self, device_id: UUID, mesh_id: UUID,
+                  user_id: UUID, session_id: UUID,
                   roles: list[NodeMeshMembership.Role] | None = None,
                   is_anchor: bool = False, is_admin: bool = False,
                   is_root: bool = False) -> NodeMeshMembership | None:
         """
-        Join a registered device to a mesh with specified topology roles.
+        Join a registered device to a mesh on behalf of an authenticated user.
 
         The device must already exist (registered via DeviceRepo.get_or_create).
-        This method creates the membership relationship with context-specific flags.
+        The session must be active and bound to this device — the caller is
+        responsible for validating the session before calling this method
+        (see UserSessionRepo.is_session_valid).
+
+        Admin rights belong to the user, not the device.  is_admin expresses
+        whether the user has administrative privileges in this mesh.
 
         Args:
-            device_id: UUID of the registered device joining
-            mesh_id: UUID of the mesh to join
-            roles: List of NodeMeshMembership.Role enum values (default: empty)
-            is_anchor: True if device has fixed position in this mesh
-            is_admin: True if device has admin rights in this mesh
-            is_root: True if device is the topology entry point
+            device_id:  UUID of the registered device joining
+            mesh_id:    UUID of the mesh to join
+            user_id:    UUID of the user acting through this device
+            session_id: UUID of the active session authorising the membership
+            roles:      List of NodeMeshMembership.Role enum values (default: empty)
+            is_anchor:  True if device has fixed position in this mesh
+            is_admin:   True if the user has admin rights in this mesh
+            is_root:    True if device is the topology entry point
 
         Returns:
             NodeMeshMembership if successfully joined, None on failure
-
-        Example:
-            # Device already registered
-            device = device_repo.get_or_create("tag_001", device_type_ordinal=14)
-            
-            # Now join it to a mesh
-            membership = membership_repo.join_mesh(
-                device_id=device.id,
-                mesh_id=mesh_id,
-                roles=[NodeMeshMembership.Role.MEMBER],
-                is_anchor=False
-            )
         """
         membership = NodeMeshMembership({
-            NodeMeshMembership.DEVICE_ID: device_id,
-            NodeMeshMembership.MESH_ID: mesh_id,
-            NodeMeshMembership.MESH_ROLES: roles or [],
-            NodeMeshMembership.IS_ANCHOR: is_anchor,
-            NodeMeshMembership.IS_ADMIN: is_admin,
-            NodeMeshMembership.IS_ROOT: is_root,
-            NodeMeshMembership.JOINED_AT: None,  # DB sets timestamps
-            NodeMeshMembership.LAST_SEEN: None, # DB sets timestamps
+            NodeMeshMembership.DEVICE_ID  : device_id,
+            NodeMeshMembership.MESH_ID    : mesh_id,
+            NodeMeshMembership.USER_ID    : user_id,
+            NodeMeshMembership.SESSION_ID : session_id,
+            NodeMeshMembership.MESH_ROLES : roles or [],
+            NodeMeshMembership.IS_ANCHOR  : is_anchor,
+            NodeMeshMembership.IS_ADMIN   : is_admin,
+            NodeMeshMembership.IS_ROOT    : is_root,
+            NodeMeshMembership.JOINED_AT  : None,
+            NodeMeshMembership.LAST_SEEN  : None,
         })
-        result = self.add(membership)
-        return result
+        return self.add(membership)
  
     # -----------------------------------------------------------------------
     # Workflow 2: Device leaves a mesh
@@ -312,6 +309,85 @@ class NodeMeshMembershipRepo(BaseRepository[NodeMeshMembership]):
         with self._lock:
             return sum(1 for m in self.all_items if m.mesh_id == mesh_id)
  
+    def get_members_by_user(self, user_id: UUID) -> set[NodeMeshMembership]:
+        """
+        Get all mesh memberships currently held by a user (across all devices/meshes).
+
+        Args:
+            user_id: UUID of the user
+
+        Returns:
+            Set of NodeMeshMembership objects for that user
+        """
+        if not (self.initialized or self.initialize()):
+            raise RuntimeError(f'Failed {type(self)}.get_members_by_user; repo not initialized')
+
+        with self._lock:
+            return {m for m in self.all_items if m.user_id == user_id}
+
+    def get_members_by_session(self, session_id: UUID) -> set[NodeMeshMembership]:
+        """
+        Get all mesh memberships backed by a specific session.
+
+        Useful when a session expires: retrieve all memberships to drop.
+
+        Args:
+            session_id: UUID of the session
+
+        Returns:
+            Set of NodeMeshMembership objects for that session
+        """
+        if not (self.initialized or self.initialize()):
+            raise RuntimeError(f'Failed {type(self)}.get_members_by_session; repo not initialized')
+
+        with self._lock:
+            return {m for m in self.all_items if m.session_id == session_id}
+
+    def drop_memberships_for_session(self, session_id: UUID) -> list[NodeMeshMembership]:
+        """
+        Remove all mesh memberships backed by the given session.
+
+        Called when a session expires (logout, inactivity, hard expiry) so
+        that devices whose users are no longer present drop out of their meshes.
+
+        Args:
+            session_id: UUID of the expired/logged-out session
+
+        Returns:
+            List of removed NodeMeshMembership objects
+        """
+        if not (self.initialized or self.initialize()):
+            raise RuntimeError(f'Failed {type(self)}.drop_memberships_for_session; repo not initialized')
+
+        to_remove = self.get_members_by_session(session_id)
+        if not to_remove:
+            return []
+        return self.remove_many(to_remove)
+
+    def get_user_in_mesh(self, user_id: UUID,
+                         mesh_id: UUID) -> NodeMeshMembership | None:
+        """
+        Return the membership record for a specific user in a specific mesh.
+
+        A user may only appear once per mesh (enforced by the one-active-session
+        constraint), so at most one record is returned.
+
+        Args:
+            user_id: UUID of the user
+            mesh_id: UUID of the mesh
+
+        Returns:
+            NodeMeshMembership if found, None otherwise
+        """
+        if not (self.initialized or self.initialize()):
+            raise RuntimeError(f'Failed {type(self)}.get_user_in_mesh; repo not initialized')
+
+        with self._lock:
+            for m in self.all_items:
+                if m.user_id == user_id and m.mesh_id == mesh_id:
+                    return m
+        return None
+
     def membership_count_for_device(self, device_id: UUID) -> int:
         """
         Fast count of meshes a device participates in (no object construction).

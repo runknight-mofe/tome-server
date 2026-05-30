@@ -85,7 +85,16 @@ class NodeMeshPredicateMembership(BaseDataModel):
 
 @dataclass(eq = False)
 class NodeMeshMembership(BaseDataModel):
-    """Describes membership of a node within a mesh topology instance"""
+    """
+    Describes membership of a device within a mesh topology instance.
+
+    A device participates in a mesh on behalf of a user whose active session
+    authorises the membership.  Admin rights belong to the user — the device
+    is the instrument through which the user acts.
+
+    user_id and session_id are ref-IDs only; fetch full objects via
+    UserRepo / UserSessionRepo to avoid pre-loading dependencies.
+    """
 
     class Role(Enum):
         """Responsibility of the node within the mesh"""
@@ -96,6 +105,8 @@ class NodeMeshMembership(BaseDataModel):
 
     DEVICE_ID   = "device_id"
     MESH_ID     = "mesh_id"
+    USER_ID     = "user_id"
+    SESSION_ID  = "session_id"
     MESH_ROLES  = "mesh_roles"
     IS_ADMIN    = "is_admin"
     IS_ANCHOR   = "is_anchor"
@@ -103,29 +114,44 @@ class NodeMeshMembership(BaseDataModel):
     JOINED_AT   = "joined_at"
     LAST_SEEN   = "last_seen"
 
-    EXPECTED_FIELDS = { DEVICE_ID : str, MESH_ID : str, MESH_ROLES : list, IS_ADMIN : bool, IS_ANCHOR: bool, IS_ROOT : bool, JOINED_AT : str, LAST_SEEN : str }
+    EXPECTED_FIELDS = {
+        DEVICE_ID  : str,
+        MESH_ID    : str,
+        USER_ID    : str,
+        SESSION_ID : str,
+        MESH_ROLES : list,
+        IS_ADMIN   : bool,
+        IS_ANCHOR  : bool,
+        IS_ROOT    : bool,
+        JOINED_AT  : str,
+        LAST_SEEN  : str,
+    }
     OPTIONAL_FIELDS = { }
-    FIELD_TYPES = { 
-        MESH_ID : UUID,
-        DEVICE_ID : UUID,
+    FIELD_TYPES = {
+        MESH_ID    : UUID,
+        DEVICE_ID  : UUID,
+        USER_ID    : UUID,
+        SESSION_ID : UUID,
         MESH_ROLES : list[Role],
-        IS_ADMIN : bool,
-        IS_ANCHOR : bool,
-        IS_ROOT : bool,
-        JOINED_AT : datetime,
-        LAST_SEEN : datetime
+        IS_ADMIN   : bool,
+        IS_ANCHOR  : bool,
+        IS_ROOT    : bool,
+        JOINED_AT  : datetime,
+        LAST_SEEN  : datetime,
     }
 
     def __init__(self, params):
         super().__init__(params)
-        self._mesh_id : UUID                                = self._data[NodeMeshMembership.MESH_ID]
-        self._device_id : UUID                              = self._data[NodeMeshMembership.DEVICE_ID]
-        self._is_anchor : bool                              = self._data[NodeMeshMembership.IS_ANCHOR]
-        self._mesh_roles : list[NodeMeshMembership.Role]    = self._data[NodeMeshMembership.MESH_ROLES] if NodeMeshMembership.MESH_ROLES in self._data else []
-        self._is_admin : bool                               = self._data[NodeMeshMembership.IS_ADMIN]
-        self._is_root : bool                                = self._data[NodeMeshMembership.IS_ROOT]
-        self._joined_at : datetime                          = self._data[NodeMeshMembership.JOINED_AT]
-        self._last_seen : datetime                          = self._data[NodeMeshMembership.LAST_SEEN]
+        self._mesh_id    : UUID                              = self._data[NodeMeshMembership.MESH_ID]
+        self._device_id  : UUID                              = self._data[NodeMeshMembership.DEVICE_ID]
+        self._user_id    : UUID                              = self._data[NodeMeshMembership.USER_ID]
+        self._session_id : UUID                              = self._data[NodeMeshMembership.SESSION_ID]
+        self._is_anchor  : bool                              = self._data[NodeMeshMembership.IS_ANCHOR]
+        self._mesh_roles : list[NodeMeshMembership.Role]     = self._data[NodeMeshMembership.MESH_ROLES] if NodeMeshMembership.MESH_ROLES in self._data else []
+        self._is_admin   : bool                              = self._data[NodeMeshMembership.IS_ADMIN]
+        self._is_root    : bool                              = self._data[NodeMeshMembership.IS_ROOT]
+        self._joined_at  : datetime                          = self._data[NodeMeshMembership.JOINED_AT]
+        self._last_seen  : datetime                          = self._data[NodeMeshMembership.LAST_SEEN]
 
     @property
     def mesh_id(self):
@@ -139,13 +165,33 @@ class NodeMeshMembership(BaseDataModel):
 
     @property
     def device_id(self):
-        """Device unique identifier"""
+        """Device unique identifier — fetch full Device via DeviceRepo"""
         return self._device_id
 
     @device_id.setter
     def device_id(self, value : UUID):
         self._device_id = value
         self.set_field_value(NodeMeshMembership.DEVICE_ID, value)
+
+    @property
+    def user_id(self):
+        """ID of the user acting through this device in this mesh — fetch full User via UserRepo"""
+        return self._user_id
+
+    @user_id.setter
+    def user_id(self, value: UUID):
+        self._user_id = value
+        self.set_field_value(NodeMeshMembership.USER_ID, value)
+
+    @property
+    def session_id(self):
+        """ID of the active session that authorises this membership — fetch via UserSessionRepo"""
+        return self._session_id
+
+    @session_id.setter
+    def session_id(self, value: UUID):
+        self._session_id = value
+        self.set_field_value(NodeMeshMembership.SESSION_ID, value)
 
     @property
     def is_anchor(self):
@@ -169,7 +215,7 @@ class NodeMeshMembership(BaseDataModel):
 
     @property
     def is_admin(self):
-        """Does the device have admin privileges in this mesh?"""
+        """Does the user (acting through this device) have admin privileges in this mesh?"""
         return self._is_admin
 
     @is_admin.setter

@@ -92,39 +92,91 @@ CREATE INDEX IF NOT EXISTS idx_devices_type        ON devices(type);
 CREATE INDEX IF NOT EXISTS idx_devices_is_emulated ON devices(is_emulated);
 
 -- ---------------------------------------------------------------------------
+-- Users  (id UUID, username VARCHAR UNIQUE, display_name VARCHAR, created_at)
+--
+-- A User is a human principal who owns devices and holds admin rights in
+-- meshes.  The record is created locally on first login from the external
+-- identity provider.  username is the canonical handle from the IdP.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+    id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    username     VARCHAR(255) NOT NULL UNIQUE,
+    display_name VARCHAR(255),
+    created_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+-- ---------------------------------------------------------------------------
+-- UserSessions  (id, user_id→users, device_id→devices,
+--               created_at, expires_at, last_active_at, is_active)
+--
+-- Records a user's active presence on a specific device.
+-- Invariants enforced here:
+--   • One active session per user  (partial unique index)
+--   • One active session per device (partial unique index)
+-- When is_active is set to FALSE all downstream mesh memberships for this
+-- session must be removed by the service layer.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_sessions (
+    id             UUID                     PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id        UUID                     NOT NULL REFERENCES users(id)   ON DELETE CASCADE,
+    device_id      UUID                     NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    created_at     TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at     TIMESTAMP WITH TIME ZONE NOT NULL,
+    last_active_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_active      BOOLEAN                  NOT NULL DEFAULT TRUE
+);
+
+-- At most one active session per user and per device
+CREATE UNIQUE INDEX IF NOT EXISTS uq_user_sessions_active_user
+    ON user_sessions(user_id) WHERE is_active = TRUE;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_user_sessions_active_device
+    ON user_sessions(device_id) WHERE is_active = TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id   ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_device_id ON user_sessions(device_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_is_active ON user_sessions(is_active);
+
+-- ---------------------------------------------------------------------------
 -- NodeMeshMembership
---   device_id   UUID → devices(id) ON DELETE CASCADE
---             If a device is physically decommissioned and its NodeDevice
---             record deleted, all mesh memberships cascade away automatically.
---   mesh_id   UUID → node_meshes(id)  ON DELETE CASCADE (deferred ALTER below)
---   mesh_roles INT[] NodeMeshRole ordinals only. Python enum provides
---                    name/description; no DB table needed.
---                    0=MEMBER  1=GATEWAY  2=ADMIN  3=ROOT
---   is_admin  BOOLEAN
---   is_anchor BOOLEAN  TRUE=anchor (fixed, known position)
---                      FALSE=client/tag (mobile, unknown position)
---   is_root   BOOLEAN
---   joined_at TIMESTAMPTZ
---   last_seen TIMESTAMPTZ
+--   device_id   UUID → devices(id)       ON DELETE CASCADE
+--   mesh_id     UUID → node_meshes(id)   ON DELETE CASCADE (deferred ALTER below)
+--   user_id     UUID → users(id)         ON DELETE CASCADE
+--             The user whose active session authorises this membership.
+--             Admin rights belong to the user, not the device.
+--   session_id  UUID → user_sessions(id) ON DELETE CASCADE
+--             When a session is deleted (hard remove) the membership cascades
+--             away automatically.  Soft expiry (is_active=FALSE) is handled
+--             by the service layer calling drop_memberships_for_session().
+--   mesh_roles  INT[]  NodeMeshRole ordinals.  0=MEMBER 1=GATEWAY 2=ADMIN 3=ROOT
+--   is_admin    BOOLEAN — the user has admin rights in this mesh
+--   is_anchor   BOOLEAN — device has a fixed, known position
+--   is_root     BOOLEAN — device is the topology entry point
+--   joined_at   TIMESTAMPTZ
+--   last_seen   TIMESTAMPTZ
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS node_mesh_memberships (
-    device_id    UUID                     NOT NULL REFERENCES devices(id)
-                                            ON DELETE CASCADE,
-    mesh_id    UUID                     NOT NULL,
-    mesh_roles INT[]                    NOT NULL DEFAULT '{}',
-    is_admin   BOOLEAN                  NOT NULL DEFAULT FALSE,
-    is_anchor  BOOLEAN                  NOT NULL DEFAULT FALSE,
-    is_root    BOOLEAN                  NOT NULL DEFAULT FALSE,
-    -- joined_at is set by the DB at insert time; not supplied by the application.
-    joined_at  TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_seen  TIMESTAMP WITH TIME ZONE,
+    device_id    UUID                     NOT NULL REFERENCES devices(id)       ON DELETE CASCADE,
+    mesh_id      UUID                     NOT NULL,
+    user_id      UUID                     NOT NULL REFERENCES users(id)         ON DELETE CASCADE,
+    session_id   UUID                     NOT NULL REFERENCES user_sessions(id) ON DELETE CASCADE,
+    mesh_roles   INT[]                    NOT NULL DEFAULT '{}',
+    is_admin     BOOLEAN                  NOT NULL DEFAULT FALSE,
+    is_anchor    BOOLEAN                  NOT NULL DEFAULT FALSE,
+    is_root      BOOLEAN                  NOT NULL DEFAULT FALSE,
+    joined_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen    TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (device_id, mesh_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_nmm_mesh_id  ON node_mesh_memberships(mesh_id);
+CREATE INDEX IF NOT EXISTS idx_nmm_mesh_id    ON node_mesh_memberships(mesh_id);
 CREATE INDEX IF NOT EXISTS idx_nmm_device_id  ON node_mesh_memberships(device_id);
-CREATE INDEX IF NOT EXISTS idx_nmm_is_root  ON node_mesh_memberships(is_root);
-CREATE INDEX IF NOT EXISTS idx_nmm_is_admin ON node_mesh_memberships(is_admin);
+CREATE INDEX IF NOT EXISTS idx_nmm_user_id    ON node_mesh_memberships(user_id);
+CREATE INDEX IF NOT EXISTS idx_nmm_session_id ON node_mesh_memberships(session_id);
+CREATE INDEX IF NOT EXISTS idx_nmm_is_root    ON node_mesh_memberships(is_root);
+CREATE INDEX IF NOT EXISTS idx_nmm_is_admin   ON node_mesh_memberships(is_admin);
 
 -- ---------------------------------------------------------------------------
 -- Predicates — Class Table Inheritance (base + family child tables)
@@ -283,4 +335,12 @@ VALUES ('8.0.0',
         'created_at/modified_at defaults on predicates; '
         'trg_set_modified_at trigger on predicates; '
         'joined_at default on node_mesh_memberships')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO schema_versions (version, description)
+VALUES ('9.0.0',
+        'v9: users-as-owners — introduce users and user_sessions tables; '
+        'node_mesh_memberships gains user_id and session_id FK columns; '
+        'admin rights transferred from device to user; '
+        'partial unique indexes enforce one-active-session-per-user and per-device')
 ON CONFLICT DO NOTHING;

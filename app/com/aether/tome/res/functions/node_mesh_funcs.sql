@@ -20,11 +20,14 @@
 -- mesh_roles is returned as a plain INT array [0, 2, ...].
 -- The Python NodeMeshRole enum reconstructs full objects from those ordinals.
 -- status is NOT part of NodeMeshMembership; it lives on NodeMesh.
+-- user_id / session_id are ref-IDs; callers resolve full objects via their repos.
 CREATE OR REPLACE FUNCTION _build_membership(p_device_id UUID, p_mesh_id UUID)
 RETURNS JSONB LANGUAGE SQL STABLE AS $$
     SELECT jsonb_build_object(
         'device_id',  m.device_id::TEXT,
         'mesh_id',    m.mesh_id::TEXT,
+        'user_id',    m.user_id::TEXT,
+        'session_id', m.session_id::TEXT,
         'is_admin',   m.is_admin,
         'is_anchor',  m.is_anchor,
         'is_root',    m.is_root,
@@ -97,12 +100,16 @@ BEGIN
 
         -- joined_at is owned by the DB (DEFAULT CURRENT_TIMESTAMP).
         -- Any value supplied by the caller is discarded.
+        -- user_id and session_id must be supplied; the device only participates
+        -- via an authenticated user with an active session.
         INSERT INTO node_mesh_memberships
-               (device_id, mesh_id, mesh_roles,
+               (device_id, mesh_id, user_id, session_id, mesh_roles,
                 is_admin, is_anchor, is_root, last_seen)
         VALUES (
             (v_row->>'device_id')::UUID,
             (v_row->>'mesh_id')::UUID,
+            (v_row->>'user_id')::UUID,
+            (v_row->>'session_id')::UUID,
             v_ordinals,
             COALESCE((v_row->>'is_admin')::BOOLEAN,  FALSE),
             COALESCE((v_row->>'is_anchor')::BOOLEAN, FALSE),

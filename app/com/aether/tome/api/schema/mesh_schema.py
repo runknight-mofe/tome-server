@@ -45,13 +45,14 @@ update_mesh_request_schema : UpdateMeshRequestSchema = UpdateMeshRequestSchema()
 
 
 class MeshMembershipSchema(BaseSchema[NodeMeshMembershipRequest]):
-    """Schema for device joining an existing node mesh
-    
-    Validates request for a device joining a node mesh
+    """
+    Validates a device join/leave request for a node mesh.
+
+    session_id is required: a device may only participate in a mesh while
+    backed by a valid, active user session.
     """
 
     __model__ = NodeMeshMembershipRequest
-    """Object type whose data is being validated"""
 
     device_id = fields.UUID(
         data_key = NodeMeshMembershipRequest.DEVICE_ID,
@@ -65,18 +66,22 @@ class MeshMembershipSchema(BaseSchema[NodeMeshMembershipRequest]):
     )
     """Existing node mesh"""
 
+    session_id = fields.UUID(
+        data_key = NodeMeshMembershipRequest.SESSION_ID,
+        required = True,
+    )
+    """Active session authorising the device to participate in the mesh"""
+
     roles = fields.List(
         fields.Enum(NodeMeshMembership.Role),
-        data_key = NodeMeshMembershipRequest.ROLES,
-        required = True,
+        data_key   = NodeMeshMembershipRequest.ROLES,
+        required   = True,
         allow_none = False,
-        validate = validate.Length(
-            min = 1
-        )
+        validate   = validate.Length(min=1),
     )
     """Roles being requested by the joining device"""
 
-mesh_membership_schema : MeshMembershipSchema = MeshMembershipSchema()
+mesh_membership_schema: MeshMembershipSchema = MeshMembershipSchema()
 
 
 class MeshPredicateMembershipSchema(BaseSchema[NodeMeshPredicateMembershipRequest]):
