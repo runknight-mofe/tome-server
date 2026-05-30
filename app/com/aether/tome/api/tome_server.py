@@ -20,7 +20,7 @@ from functools import wraps
 import requests
 
 from com.aether.tome.api.tome_config import config
-from com.aether.tome.api.service.mesh import retrieve_mesh
+from com.aether.tome.api.service.mesh import retrieve_mesh_by_id
 
 
 # Configure logging
@@ -139,11 +139,13 @@ def register_blueprints(app):
     """Register API blueprints"""
     from com.aether.tome.api.routes.mesh import mesh_bp
     from com.aether.tome.api.routes.device import device_bp
+    from com.aether.tome.api.routes.predicate import predicate_bp
     from com.aether.tome.api.routes.user import user_bp
 
-    app.register_blueprint(mesh_bp, url_prefix='/api/v1/mesh')
-    app.register_blueprint(device_bp, url_prefix='/api/v1/device')
-    app.register_blueprint(user_bp, url_prefix='/api/v1/user')
+    app.register_blueprint(mesh_bp,       url_prefix='/api/v1/mesh')
+    app.register_blueprint(device_bp,     url_prefix='/api/v1/device')
+    app.register_blueprint(predicate_bp,  url_prefix='/api/v1/predicate')
+    app.register_blueprint(user_bp,       url_prefix='/api/v1/user')
 
 def resp_ok(data):
     return jsonify(data), OK
@@ -302,7 +304,7 @@ def require_mesh_access(f):
         if not mesh_id:
             return jsonify({'error': 'mesh_id required'}), 400
         
-        mesh = retrieve_mesh(mesh_id)
+        mesh = retrieve_mesh_by_id(mesh_id)
         
         if not mesh:
             return jsonify({'error': 'Mesh not found'}), 404

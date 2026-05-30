@@ -2,7 +2,7 @@ from uuid import UUID
 
 from com.aether.tome.db.base_repository import BaseRepository
 from com.aether.tome.db.connection import DBConnector
-from com.aether.tome.model.mesh import NodeMesh, NodeMeshMembership
+from com.aether.tome.model.mesh import NodeMesh, NodeMeshMembership, NodeMeshPredicateMembership
 from com.aether.tome.model.node import Node
 
 # ---------------------------------------------------------------------------
@@ -315,16 +315,178 @@ class NodeMeshMembershipRepo(BaseRepository[NodeMeshMembership]):
     def membership_count_for_device(self, device_id: UUID) -> int:
         """
         Fast count of meshes a device participates in (no object construction).
-        
+
         Args:
             device_id: UUID of the device
-        
+
         Returns:
             Count of meshes for that device
         """
         if not (self.initialized or self.initialize()):
             raise RuntimeError(f'Failed {type(self)}.membership_count_for_device; repo not initialized')
-        
+
         with self._lock:
             return sum(1 for m in self.all_items if m.device_id == device_id)
- 
+
+
+# ---------------------------------------------------------------------------
+# NodeMeshPredicateMembershipRepo
+# Keys: [PREDICATE_ID, MESH_ID]  (composite identity)
+# Predicates are independent resources shared across meshes via node_mesh_predicates.
+# ---------------------------------------------------------------------------
+class NodeMeshPredicateMembershipRepo(BaseRepository[NodeMeshPredicateMembership]):
+    """Repository for NodeMeshPredicateMembership instances."""
+
+    __model__ = NodeMeshPredicateMembership
+
+    KEYS = [NodeMeshPredicateMembership.PREDICATE_ID, NodeMeshPredicateMembership.MESH_ID]
+
+    def __init__(self, db: DBConnector | None = None,
+                 db_params: dict | None = None):
+        super().__init__(NodeMeshPredicateMembershipRepo.KEYS, db, db_params)
+        self.sql[self.GET]    = "get_all_node_mesh_predicate_memberships"
+        self.sql[self.ADD]    = "add_many_node_mesh_predicate_memberships"
+        self.sql[self.UPDATE] = "update_many_node_mesh_predicate_memberships"
+        self.sql[self.REMOVE] = "remove_many_node_mesh_predicate_memberships"
+
+    # -----------------------------------------------------------------------
+    # Workflow 1: Join a predicate to a mesh
+    # -----------------------------------------------------------------------
+    def join_mesh(self, predicate_id: UUID, mesh_id: UUID,
+                  position: int = 0) -> NodeMeshPredicateMembership | None:
+        """
+        Associate a registered predicate with a mesh at the given position.
+
+        The predicate must already exist (created via PredicateRepo.add).
+        A predicate may belong to multiple meshes simultaneously.
+
+        Args:
+            predicate_id: UUID of the registered predicate
+            mesh_id: UUID of the mesh to join
+            position: Ordered position within the mesh predicate list (default 0)
+
+        Returns:
+            NodeMeshPredicateMembership if successful, None on failure
+        """
+        membership = NodeMeshPredicateMembership({
+            NodeMeshPredicateMembership.PREDICATE_ID : predicate_id,
+            NodeMeshPredicateMembership.MESH_ID      : mesh_id,
+            NodeMeshPredicateMembership.POSITION     : position,
+        })
+        return self.add(membership)
+
+    # -----------------------------------------------------------------------
+    # Workflow 2: Remove a predicate from a mesh
+    # -----------------------------------------------------------------------
+    def leave_mesh(self, predicate_id: UUID, mesh_id: UUID) -> bool:
+        """
+        Remove a predicate from a mesh.
+
+        The predicate itself is not deleted; only the association is removed.
+        The predicate may remain a member of other meshes.
+
+        Args:
+            predicate_id: UUID of the predicate leaving
+            mesh_id: UUID of the mesh being left
+
+        Returns:
+            True if removal succeeded, False if membership not found
+        """
+        membership = self.get(predicate_id)
+        if membership and membership.mesh_id == mesh_id:
+            removed = self.remove(membership)
+            return bool(removed)
+        return False
+
+    # -----------------------------------------------------------------------
+    # Workflow 3: Update position within a mesh
+    # -----------------------------------------------------------------------
+    def update_membership(self, predicate_id: UUID, mesh_id: UUID,
+                          position: int | None = None) -> NodeMeshPredicateMembership | None:
+        """
+        Update the ordered position of a predicate within a mesh.
+
+        Args:
+            predicate_id: UUID of the predicate
+            mesh_id: UUID of the mesh
+            position: New position (or None to keep existing)
+
+        Returns:
+            Updated NodeMeshPredicateMembership if found, None otherwise
+        """
+        membership = self.get(predicate_id)
+        if not membership or membership.mesh_id != mesh_id:
+            return None
+
+        if position is not None:
+            membership.position = position
+
+        result = self.update(membership)
+        return result if result else None
+
+    # -----------------------------------------------------------------------
+    # Filtering helpers — efficient in-memory lookups
+    # -----------------------------------------------------------------------
+    def get_predicates_by_mesh(self, mesh_id: UUID) -> set[NodeMeshPredicateMembership]:
+        """
+        Get all predicate memberships for a given mesh.
+
+        Args:
+            mesh_id: UUID of the mesh
+
+        Returns:
+            Set of NodeMeshPredicateMembership objects
+        """
+        if not (self.initialized or self.initialize()):
+            raise RuntimeError(f'Failed {type(self)}.get_predicates_by_mesh; repo not initialized')
+
+        with self._lock:
+            return {m for m in self.all_items if m.mesh_id == mesh_id}
+
+    def get_meshes_for_predicate(self, predicate_id: UUID) -> set[NodeMeshPredicateMembership]:
+        """
+        Get all meshes that a predicate is a member of.
+
+        Args:
+            predicate_id: UUID of the predicate
+
+        Returns:
+            Set of NodeMeshPredicateMembership objects for that predicate
+        """
+        if not (self.initialized or self.initialize()):
+            raise RuntimeError(f'Failed {type(self)}.get_meshes_for_predicate; repo not initialized')
+
+        with self._lock:
+            return {m for m in self.all_items if m.predicate_id == predicate_id}
+
+    def membership_count_for_mesh(self, mesh_id: UUID) -> int:
+        """
+        Fast count of predicates in a mesh.
+
+        Args:
+            mesh_id: UUID of the mesh
+
+        Returns:
+            Count of predicates in the mesh
+        """
+        if not (self.initialized or self.initialize()):
+            raise RuntimeError(f'Failed {type(self)}.membership_count_for_mesh; repo not initialized')
+
+        with self._lock:
+            return sum(1 for m in self.all_items if m.mesh_id == mesh_id)
+
+    def membership_count_for_predicate(self, predicate_id: UUID) -> int:
+        """
+        Fast count of meshes a predicate participates in.
+
+        Args:
+            predicate_id: UUID of the predicate
+
+        Returns:
+            Count of meshes for that predicate
+        """
+        if not (self.initialized or self.initialize()):
+            raise RuntimeError(f'Failed {type(self)}.membership_count_for_predicate; repo not initialized')
+
+        with self._lock:
+            return sum(1 for m in self.all_items if m.predicate_id == predicate_id)

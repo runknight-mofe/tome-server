@@ -1,12 +1,86 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from packaging.version import Version
 from typing import Type
 from uuid import UUID
 
 from com.runknight.model.base_model import BaseDataModel
+from packaging.version import Version
 from com.aether.tome.model.predicate.base import Predicate
+
+
+@dataclass(eq=False)
+class NodeMeshPredicateMembership(BaseDataModel):
+    """Describes membership of a predicate within a mesh topology instance"""
+
+    PREDICATE_ID = "predicate_id"
+    MESH_ID      = "mesh_id"
+    POSITION     = "position"
+
+    EXPECTED_FIELDS = { PREDICATE_ID: str, MESH_ID: str, POSITION: int }
+    OPTIONAL_FIELDS = {}
+    FIELD_TYPES = {
+        PREDICATE_ID : UUID,
+        MESH_ID      : UUID,
+        POSITION     : int,
+    }
+
+    def __init__(self, params):
+        super().__init__(params)
+        self._predicate_id : UUID = self._data[NodeMeshPredicateMembership.PREDICATE_ID]
+        self._mesh_id      : UUID = self._data[NodeMeshPredicateMembership.MESH_ID]
+        self._position     : int  = self._data[NodeMeshPredicateMembership.POSITION]
+
+    @property
+    def predicate_id(self):
+        """Predicate unique identifier"""
+        return self._predicate_id
+
+    @predicate_id.setter
+    def predicate_id(self, value: UUID):
+        self._predicate_id = value
+        self.set_field_value(NodeMeshPredicateMembership.PREDICATE_ID, value)
+
+    @property
+    def mesh_id(self):
+        """Mesh unique identifier"""
+        return self._mesh_id
+
+    @mesh_id.setter
+    def mesh_id(self, value: UUID):
+        self._mesh_id = value
+        self.set_field_value(NodeMeshPredicateMembership.MESH_ID, value)
+
+    @property
+    def position(self):
+        """Ordered position of the predicate within the mesh"""
+        return self._position
+
+    @position.setter
+    def position(self, value: int):
+        self._position = value
+        self.set_field_value(NodeMeshPredicateMembership.POSITION, value)
+
+    def __hash__(self):
+        return hash((self.predicate_id, self.mesh_id))
+
+    def __str__(self):
+        return f'[{self.mesh_id},{self.predicate_id}]: pos={self.position}'
+
+    def __repr__(self) -> str:
+        return f'[{self.mesh_id},{self.predicate_id}]: pos={self.position}'
+
+    @staticmethod
+    def get_required_fields() -> dict[str, Type]:
+        return NodeMeshPredicateMembership.EXPECTED_FIELDS
+
+    @staticmethod
+    def get_optional_fields() -> dict[str, Type]:
+        return NodeMeshPredicateMembership.OPTIONAL_FIELDS
+
+    @classmethod
+    def get_field_types(cls):
+        return NodeMeshPredicateMembership.FIELD_TYPES
 
 
 @dataclass(eq = False)
@@ -171,19 +245,15 @@ class NodeMesh(BaseDataModel):
 
     ID              = "id"
     NAME            = "name"
-    NODES           = "nodes"
-    PREDICATES      = "predicates"
     STATUS          = "status"
     DESCRIPTION     = "description"
     API_VERSION     = "api_version"
 
-    EXPECTED_FIELDS = { ID : str, NAME : str, NODES : list, PREDICATES : list, DESCRIPTION : str, API_VERSION: str, STATUS : int }
+    EXPECTED_FIELDS = { ID : str, NAME : str, DESCRIPTION : str, API_VERSION: str, STATUS : int }
     OPTIONAL_FIELDS = { }
     FIELD_TYPES = { 
         ID : UUID,
         NAME: str,
-        NODES : list[NodeMeshMembership],
-        PREDICATES : list,
         STATUS : Status,
         DESCRIPTION: str,
         API_VERSION: Version
@@ -193,8 +263,6 @@ class NodeMesh(BaseDataModel):
         super().__init__(params)
         self._id : UUID                         = self._data[NodeMesh.ID]
         self._name : str                        = self._data[NodeMesh.NAME]
-        self._nodes : list[NodeMeshMembership]  = self._data[NodeMesh.NODES]
-        self._predicates : list                 = self._data[NodeMesh.PREDICATES]
         self._status : NodeMesh.Status          = self._data[NodeMesh.STATUS]
         self._description : str                 = self._data[NodeMesh.DESCRIPTION]
         self._api_version : Version             = self._data[NodeMesh.API_VERSION]
@@ -218,26 +286,6 @@ class NodeMesh(BaseDataModel):
     def name(self, value : str):
         self._name = value
         self.set_field_value(NodeMesh.NAME, value)
-
-    @property
-    def nodes(self):
-        """Node members of the mesh"""
-        return self._nodes
-
-    @nodes.setter
-    def nodes(self, value : list[NodeMeshMembership]):
-        self._nodes = value
-        self.set_field_value(NodeMesh.NODES, value)
-
-    @property
-    def predicates(self):
-        """Predicates owned by the mesh"""
-        return self._predicates
-
-    @predicates.setter
-    def predicates(self, value : list[Predicate]):
-        self._predicates = value
-        self.set_field_value(NodeMesh.PREDICATES, value)
 
     @property
     def status(self):

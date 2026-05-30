@@ -1,1 +1,1 @@
-from . import base, geometric
+from . import base, geometric, mapping
