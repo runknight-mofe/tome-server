@@ -1,8 +1,10 @@
+from com.runknight.schema.base import ManagedObjectUpdatequest
+
 from com.aether.tome.api.tome_config import config
 from com.aether.tome.db.connection import DBConnector
 from com.aether.tome.db.mesh import MeshRepo, NodeMeshMembershipRepo, NodeMeshPredicateMembershipRepo
 from com.aether.tome.db.predicate import PredicateRepo
-from com.aether.tome.model.mesh import NodeMeshMembership
+from com.aether.tome.model.mesh import NodeMesh, NodeMeshMembership
 
 DB_PARAMS = {
     DBConnector.HOST : config.db_host,
@@ -21,17 +23,28 @@ assert mmr.initialize() and pmr.initialize() and pr.initialize() and mr.initiali
     "One or more repos failed to initialize"
 
 
-def create_mesh(mesh):
+def create_mesh_from_obj(mesh):
     """Persist a new mesh to the Tome DB."""
     return mr.add(mesh)
 
+def update_mesh_from_params(req: ManagedObjectUpdatequest[NodeMesh]):
+    """Retrieve a node mesh by its UUID."""
+    updated = False
+    id = req.id or None
+    if id:
+        existing = mr.get(id)
+        if existing:
+            params = req.params
+            {existing.set_field_value(field_name=key, value=value) for key, value in params.items()}
+            updated = mr.update(existing) is not None
+    return updated
 
-def delete_mesh(id):
+def remove_mesh_by_id(id):
     """Delete an existing node mesh by ID."""
     return mr.remove_by_id(id)
 
 
-def retrieve_mesh(id):
+def retrieve_mesh_by_id(id):
     """Retrieve a node mesh by its UUID."""
     return mr.get(id)
 

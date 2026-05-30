@@ -1,6 +1,7 @@
 debugpy
 Flask
 flask-cors
+flask-limiter
 flask-jwt-extended
 gunicorn
 packaging

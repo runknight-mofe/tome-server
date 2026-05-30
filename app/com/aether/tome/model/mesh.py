@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from packaging.version import Version
 from typing import Type
 from uuid import UUID
 
 from com.runknight.model.base_model import BaseDataModel
+from packaging.version import Version
 from com.aether.tome.model.predicate.base import Predicate
 
 
@@ -245,19 +245,15 @@ class NodeMesh(BaseDataModel):
 
     ID              = "id"
     NAME            = "name"
-    NODES           = "nodes"
-    PREDICATES      = "predicates"
     STATUS          = "status"
     DESCRIPTION     = "description"
     API_VERSION     = "api_version"
 
-    EXPECTED_FIELDS = { ID : str, NAME : str, NODES : list, PREDICATES : list, DESCRIPTION : str, API_VERSION: str, STATUS : int }
+    EXPECTED_FIELDS = { ID : str, NAME : str, DESCRIPTION : str, API_VERSION: str, STATUS : int }
     OPTIONAL_FIELDS = { }
     FIELD_TYPES = { 
         ID : UUID,
         NAME: str,
-        NODES : list[NodeMeshMembership],
-        PREDICATES : list,
         STATUS : Status,
         DESCRIPTION: str,
         API_VERSION: Version
@@ -267,8 +263,6 @@ class NodeMesh(BaseDataModel):
         super().__init__(params)
         self._id : UUID                         = self._data[NodeMesh.ID]
         self._name : str                        = self._data[NodeMesh.NAME]
-        self._nodes : list[NodeMeshMembership]  = self._data[NodeMesh.NODES]
-        self._predicates : list                 = self._data[NodeMesh.PREDICATES]
         self._status : NodeMesh.Status          = self._data[NodeMesh.STATUS]
         self._description : str                 = self._data[NodeMesh.DESCRIPTION]
         self._api_version : Version             = self._data[NodeMesh.API_VERSION]
@@ -292,26 +286,6 @@ class NodeMesh(BaseDataModel):
     def name(self, value : str):
         self._name = value
         self.set_field_value(NodeMesh.NAME, value)
-
-    @property
-    def nodes(self):
-        """Node members of the mesh"""
-        return self._nodes
-
-    @nodes.setter
-    def nodes(self, value : list[NodeMeshMembership]):
-        self._nodes = value
-        self.set_field_value(NodeMesh.NODES, value)
-
-    @property
-    def predicates(self):
-        """Predicates owned by the mesh"""
-        return self._predicates
-
-    @predicates.setter
-    def predicates(self, value : list[Predicate]):
-        self._predicates = value
-        self.set_field_value(NodeMesh.PREDICATES, value)
 
     @property
     def status(self):

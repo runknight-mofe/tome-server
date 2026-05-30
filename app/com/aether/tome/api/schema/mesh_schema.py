@@ -1,24 +1,47 @@
-from typing import Generic, Type, TypeVar
-from marshmallow import Schema, fields, post_load, validate
-from com.aether.tome.model.mesh import NodeMeshMembership
+from com.runknight.schema.base import BaseSchema, BaseUpdateRequestSchema, VersionField
+from marshmallow import fields, validate
+from packaging.version import Version
+from com.aether.tome.model.mesh import NodeMesh, NodeMeshMembership
 from com.aether.tome.model.request import NodeMeshMembershipRequest, NodeMeshPredicateMembershipRequest
-T = TypeVar('T')
 
-class BaseSchema(Schema, Generic[T]):
+
+class CreateMeshRequestSchema(BaseSchema[NodeMesh]):
+    """Schema for schema creation request; 
     
-    __model__ : Type[T]
+    Validates a request to create a new node mesh
+    """
+    __model__ = NodeMesh
+    """Object type whose data is being validated"""
 
-    def load_data(self, data) -> T:
-        obj =  self.load(data)
-        if not isinstance(obj, self.__model__):
-            raise TypeError(
-                f"Deserialized object is not of type {self.__model__.__name__}; got {type(obj)}"
-            )
-        return obj
-        
-    @post_load
-    def post_load(self, data, **kwargs) -> T:
-        return self.__model__(data) # type: ignore
+    ID              = "id"
+    NAME            = "name"
+    STATUS          = "status"
+    DESCRIPTION     = "description"
+    API_VERSION     = "api_version"
+
+    id = fields.UUID(           data_key = NodeMesh.ID,             load_default=None,                      required = False)
+    """Existing node mesh"""
+    name = fields.Str(          data_key = NodeMesh.NAME,                                                   required = True, validate=validate.Length(min=1))
+    """Human readable name of the mesh"""
+    status = fields.Enum(       data_key = NodeMesh.STATUS,         load_default=NodeMesh.Status.UNKNOWN,   required = False, enum=NodeMesh.Status,by_value = True)
+    """Initial state of the created mesh"""
+    description = fields.Str(   data_key = NodeMesh.DESCRIPTION,                                            required = True, validate=validate.Length(min=1))
+    """Human readable description for the mesh"""
+    api_version = VersionField( data_key = NodeMesh.API_VERSION,                                            required = True)
+    """Valid api version string"""
+
+create_mesh_request_schema : CreateMeshRequestSchema = CreateMeshRequestSchema()
+
+class UpdateMeshRequestSchema(BaseUpdateRequestSchema[NodeMesh]):
+    """Schema for schema update request; 
+    
+    Validates a request to create a new node mesh
+    """
+
+    __data_model__ = NodeMesh
+    """Object update mappings"""
+
+update_mesh_request_schema : UpdateMeshRequestSchema = UpdateMeshRequestSchema()
 
 
 class MeshMembershipSchema(BaseSchema[NodeMeshMembershipRequest]):

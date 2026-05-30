@@ -20,7 +20,7 @@ from functools import wraps
 import requests
 
 from com.aether.tome.api.tome_config import config
-from com.aether.tome.api.service.mesh import retrieve_mesh
+from com.aether.tome.api.service.mesh import retrieve_mesh_by_id
 
 
 # Configure logging
@@ -304,7 +304,7 @@ def require_mesh_access(f):
         if not mesh_id:
             return jsonify({'error': 'mesh_id required'}), 400
         
-        mesh = retrieve_mesh(mesh_id)
+        mesh = retrieve_mesh_by_id(mesh_id)
         
         if not mesh:
             return jsonify({'error': 'Mesh not found'}), 404
